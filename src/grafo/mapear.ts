@@ -13,6 +13,7 @@ export const ROTULOS_TIPO_NO: Record<TipoEntidade, string> = {
   sancao: 'Sanção',
   candidato: 'Candidato',
   edital: 'Edital',
+  convenio: 'Convênio',
 };
 
 export const ROTULOS_TIPO_ARESTA: Record<TipoAresta, string> = {
@@ -25,6 +26,8 @@ export const ROTULOS_TIPO_ARESTA: Record<TipoAresta, string> = {
   servidor_de: 'servidor de',
   doou_para: 'doou para',
   edital_de: 'edital de',
+  convenente_de: 'convenente de',
+  concedente_de: 'concedente de',
 };
 
 /**
@@ -40,6 +43,7 @@ const PALETA = {
   vermelho: '#b50909', // --red-vivid-60
   magenta: '#ab2165', // --magenta-vivid-60
   ciano: '#00687d', // --cyan-vivid-60
+  indigo: '#4a50c4', // --indigo-vivid-60
 } as const;
 
 /** Destaque do nó central e da seleção (--yellow-vivid-20, o token --warning). */
@@ -54,6 +58,7 @@ export const ESTILO_NO: Record<TipoEntidade, { cor: string; forma: string }> = {
   sancao: { cor: PALETA.vermelho, forma: 'octagon' },
   candidato: { cor: PALETA.magenta, forma: 'star' },
   edital: { cor: PALETA.ciano, forma: 'rectangle' },
+  convenio: { cor: PALETA.indigo, forma: 'triangle' },
 };
 
 export const ESTILO_ARESTA: Record<TipoAresta, { cor: string; estilo: 'solid' | 'dashed' | 'dotted' }> = {
@@ -66,6 +71,8 @@ export const ESTILO_ARESTA: Record<TipoAresta, { cor: string; estilo: 'solid' | 
   servidor_de: { cor: PALETA.verde, estilo: 'dashed' },
   doou_para: { cor: PALETA.magenta, estilo: 'solid' },
   edital_de: { cor: PALETA.ciano, estilo: 'dashed' },
+  convenente_de: { cor: PALETA.indigo, estilo: 'solid' },
+  concedente_de: { cor: PALETA.indigo, estilo: 'dotted' },
 };
 
 export function rotuloTipoNo(tipo: string): string {

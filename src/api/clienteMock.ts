@@ -11,6 +11,7 @@ import {
   ALERTAS,
   ANOTACOES_DEMO,
   ARESTAS,
+  AVISO_COMBINACAO_DEMO,
   AVISOS_DEMO,
   CAPTURA_EDITAL_DEMO,
   CAPTURAS,
@@ -28,7 +29,10 @@ import {
   MEMBROS_DEMO,
   MONITORAMENTOS_DEMO,
   MOTIVO_PORTAL_NAO_CONFIGURADO,
+  OBSERVACAO_L8_DEMO,
   PARAMETROS_TIPOLOGIAS_DEMO,
+  PESOS_COMBINACAO_DEMO,
+  POLITICAS_DEMO,
   RECUSAS_IA_DEMO,
   SEGREDO_MFA_DEMO,
   TAREFAS_DEMO,
@@ -58,6 +62,7 @@ import {
   type ColetaRequisicao,
   type ColetaResultado,
   type ComparacaoCaptura,
+  type ComponenteCombinacao,
   type ContextoSessao,
   type DecisaoSugestaoIa,
   type DefinicaoMembro,
@@ -85,6 +90,7 @@ import {
   type NovoMonitoramento,
   type NovoUsuario,
   type PapelCaso,
+  type ParametrosTipologias,
   type RecoletaMonitorada,
   type RecoletaResultado,
   type Saude,
@@ -135,6 +141,32 @@ const MENSAGEM_CREDENCIAIS = 'Usuário ou senha inválidos.';
 const MENSAGEM_BLOQUEIO = 'Conta bloqueada temporariamente por excesso de tentativas. Tente de novo mais tarde.';
 const SITUACOES_ABERTAS = new Set(['aberta', 'em_andamento']);
 const TAMANHO_MINIMO_SENHA = 12;
+
+interface Faixa {
+  inteiro?: boolean;
+  minimo: number;
+  /** Verdadeiro: o valor precisa ser maior que o mínimo (e não igual). */
+  exclusivo?: boolean;
+}
+
+/** Faixas dos limiares por execução das tipologias de lavagem e da combinação (contrato da API, seção 1.2). */
+const FAIXAS_LAVAGEM = {
+  l1_minimo_estabelecimentos: { inteiro: true, minimo: 2 },
+  l1_janela_abertura_dias: { inteiro: true, minimo: 1 },
+  l1_minimo_abertas_na_janela: { inteiro: true, minimo: 2 },
+  l3_minimo_empresas: { inteiro: true, minimo: 2 },
+  l3_minimo_abertas_na_janela: { inteiro: true, minimo: 1 },
+  l3_janela_meses: { inteiro: true, minimo: 1 },
+  l4_minimo_niveis: { inteiro: true, minimo: 2 },
+  l7_dias_apos_abertura: { inteiro: true, minimo: 0 },
+  l7_meses_antes_contrato: { inteiro: true, minimo: 1 },
+  l14_valor_minimo: { minimo: 0 },
+  l15_minimo_cnaes: { inteiro: true, minimo: 2 },
+  l15_minimo_categorias: { inteiro: true, minimo: 2 },
+  l16_dias_minimos: { inteiro: true, minimo: 0 },
+  comb_minimo_tipologias: { inteiro: true, minimo: 2 },
+  comb_peso_minimo: { minimo: 0, exclusivo: true },
+} satisfies Partial<Record<keyof ParametrosTipologias, Faixa>>;
 
 /** Perfis que recebem as entradas de auditoria dentro do relatório (como no back-end). */
 const PERFIS_COM_AUDITORIA = new Set(['delegado', 'admin']);
@@ -417,8 +449,31 @@ export class ClienteMock implements ApiCliente {
     }
     if (corpo.fonte === 'portal_transparencia') {
       const p = corpo.parametros;
-      if (!['ceis', 'cnep', 'servidores'].includes(p.recurso)) return { parametros, erro: 'recurso: ceis, cnep ou servidores' };
-      if (p.recurso === 'servidores') {
+      if (!['ceis', 'cnep', 'servidores', 'cepim', 'ceaf', 'convenios'].includes(p.recurso)) {
+        return { parametros, erro: 'recurso: ceis, cnep, cepim, ceaf, convenios ou servidores' };
+      }
+      // Empresas contratadas do caso (ponta "fornecedor" dos contratos).
+      const idsContratadas = new Set(arestas.filter((a) => a.tipo === 'contratado_por' && contratos.some((c) => mesmoId(c.id, a.destino))).map((a) => String(a.origem)));
+      if (p.recurso === 'ceaf') {
+        // CEAF: sempre por nome, nunca por CPF. `do_caso` vira a lista dos sócios pessoa física das contratadas.
+        if (p.do_caso) {
+          const idsSocios = new Set(arestas.filter((a) => a.tipo === 'socio_de' && idsContratadas.has(String(a.destino))).map((a) => String(a.origem)));
+          const nomes = [...new Set(entidades.filter((e) => e.tipo === 'pessoa' && idsSocios.has(String(e.id))).map((e) => e.rotulo))];
+          if (!nomes.length) return { parametros, erro: 'O caso não tem sócios pessoa física de contratadas ou convenentes: faça antes as coletas do CNPJ e do PNCP.' };
+          delete parametros.do_caso;
+          parametros.nomeSancionado = nomes;
+        } else {
+          const nomes = (p.nomeSancionado ?? []).map((n) => n.trim()).filter(Boolean);
+          if (!nomes.length) return { parametros, erro: 'nomeSancionado: nome completo ou lista de nomes (ou "do_caso": true).' };
+          if (nomes.some((n) => /\d/.test(n))) return { parametros, erro: 'nomeSancionado: informe só nomes. O CEAF nunca é consultado por CPF.' };
+          parametros.nomeSancionado = nomes;
+        }
+      } else if (p.recurso === 'convenios' && p.do_caso) {
+        const semFins = entidades.filter((e) => e.tipo === 'empresa' && /sem fins lucrativos|associa[cç][aã]o|funda[cç][aã]o/i.test(String(e.atributos.natureza_juridica ?? '')));
+        if (!semFins.length) return { parametros, erro: 'O caso não tem entidade sem fins lucrativos (pela natureza jurídica): faça antes a coleta do CNPJ ou informe os CNPJs.' };
+        delete parametros.do_caso;
+        parametros.codigoSancionado = semFins.map((e) => limparCnpj(e.identificador));
+      } else if (p.recurso === 'servidores') {
         const codigo = p.orgaoServidorLotacao ?? p.orgaoServidorExercicio ?? '';
         if (!/^\d+$/.test(codigo)) return { parametros, erro: 'Informe orgaoServidorLotacao ou orgaoServidorExercicio (código SIAPE do órgão, só dígitos).' };
         if (!temFormaDeCnpj(p.cnpjOrgao ?? '')) return { parametros, erro: 'cnpjOrgao: informe o órgão contratante do caso a que o código SIAPE corresponde.' };
@@ -512,6 +567,8 @@ export class ClienteMock implements ApiCliente {
       chave,
       ARESTAS.filter((a) => idsNoCaso.has(String(a.origem)) && idsNoCaso.has(String(a.destino))),
     );
+    // CEPIM, CEAF e convênios não têm carga sintética: a coleta fecha com sucesso, sem capturas, e avisa.
+    if (!cargas.length) coleta.avisos = ['Nenhum registro encontrado: o modo simulado não tem carga sintética para este recurso.'];
     coleta.situacao = 'sucesso';
     coleta.tentativas = 1;
     coleta.registros = capturaIds.length;
@@ -666,26 +723,41 @@ export class ClienteMock implements ApiCliente {
    * Como no back-end: a reexecução mantém a decisão dos alertas que continuam
    * detectados. Com `tipologias`, só as escolhidas são reavaliadas e os alertas
    * das demais ficam como estavam. Dos limiares por execução, o simulado aplica
-   * os três do horizonte 2 aos alertas sintéticos de T5 e de T8.
+   * os três do horizonte 2 aos alertas sintéticos de T5 e de T8, o valor mínimo
+   * da L14 e os dois mínimos da combinação; os demais são só validados.
    */
   async executarAlertas(casoId: Id, corpo: ExecucaoAlertas = {}): Promise<Alerta[]> {
     const rota = `/casos/${casoId}/alertas/executar`;
     const p = corpo.parametros ?? {};
     const escolhidas = corpo.tipologias ?? [...TIPOLOGIAS];
-    if (escolhidas.some((t) => !TIPOLOGIAS.includes(t))) throw new ErroApi(422, rota, 'tipologias: use T1 a T10');
+    if (escolhidas.some((t) => !TIPOLOGIAS.includes(t))) throw new ErroApi(422, rota, 'tipologias: use T1 a T10, L1 a L16 (as implementadas) ou COMB');
     const t5 = p.t5_minimo_contratacoes;
     if (t5 !== undefined && (!Number.isInteger(t5) || t5 < 2 || t5 > 1000)) throw new ErroApi(422, rota, 't5_minimo_contratacoes: inteiro de 2 a 1000');
     for (const nome of ['t8_percentual_limite', 't8_percentual_limite_reforma'] as const) {
       const v = p[nome];
       if (v !== undefined && !(Number.isFinite(v) && v > 0 && v <= 1000)) throw new ErroApi(422, rota, `${nome}: maior que 0, até 1000`);
     }
+    for (const [nome, faixa] of Object.entries(FAIXAS_LAVAGEM) as [keyof typeof FAIXAS_LAVAGEM, Faixa][]) {
+      const v = p[nome];
+      if (v === undefined) continue;
+      const naFaixa = Number.isFinite(v) && (!faixa.inteiro || Number.isInteger(v)) && (faixa.exclusivo ? v > faixa.minimo : v >= faixa.minimo);
+      if (!naFaixa) throw new ErroApi(422, rota, `${nome}: ${faixa.inteiro ? 'inteiro' : 'número'} ${faixa.exclusivo ? 'maior que' : 'a partir de'} ${faixa.minimo}`);
+    }
     await this.casoAberto('executar_alertas', casoId, { tipologias: escolhidas, parametros: { ...p } }, 'investigador');
     const minimoT5 = t5 ?? PARAMETROS_TIPOLOGIAS_DEMO.t5_minimo_contratacoes;
     const limiteT8 = p.t8_percentual_limite ?? PARAMETROS_TIPOLOGIAS_DEMO.t8_percentual_limite;
+    const minimoL14 = p.l14_valor_minimo ?? PARAMETROS_TIPOLOGIAS_DEMO.l14_valor_minimo;
     const dispara = (a: Alerta) => {
       if (a.tipologia === 'T5') return Number(a.parametros.contratacoes) >= minimoT5;
       if (a.tipologia === 'T8') return Number(a.parametros.percentual_observado) > limiteT8;
+      if (a.tipologia === 'L14') return Number(a.parametros.valor_contratado) >= minimoL14;
       return true;
+    };
+    const comLimiar = (a: Alerta): Record<string, unknown> => {
+      if (a.tipologia === 'T5') return { ...a.parametros, t5_minimo_contratacoes: minimoT5 };
+      if (a.tipologia === 'T8') return { ...a.parametros, percentual_limite: limiteT8 };
+      if (a.tipologia === 'L14') return { ...a.parametros, l14_valor_minimo: minimoL14 };
+      return a.parametros;
     };
     const idsNoCaso = new Set(this.entidades(casoId).map((e) => String(e.id)));
     const anteriores = this.alertasPorCaso.get(String(casoId)) ?? [];
@@ -693,12 +765,96 @@ export class ClienteMock implements ApiCliente {
       const anterior = anteriores.find((x) => mesmoId(x.id, a.id));
       if (!escolhidas.includes(a.tipologia)) return anterior ? [clonarAlerta(anterior)] : [];
       if (!dispara(a)) return [];
-      const parametros =
-        a.tipologia === 'T5' ? { ...a.parametros, t5_minimo_contratacoes: minimoT5 } : a.tipologia === 'T8' ? { ...a.parametros, percentual_limite: limiteT8 } : a.parametros;
+      const parametros = comLimiar(a);
       return [clonarAlerta(anterior ? { ...a, parametros, situacao: anterior.situacao, decisao: anterior.decisao, decisoes: anterior.decisoes } : { ...a, parametros })];
     });
-    this.alertasPorCaso.set(String(casoId), alertas);
-    return alertas.map(clonarAlerta);
+    // A combinação é a última a rodar, sobre os alertas que ficaram; fora da execução, a anterior é mantida.
+    const combinacoes = escolhidas.includes('COMB')
+      ? this.combinar(casoId, alertas, p).map((c) => {
+          const anterior = anteriores.find((x) => mesmoId(x.id, c.id));
+          return anterior ? { ...c, situacao: anterior.situacao, decisao: anterior.decisao, decisoes: anterior.decisoes } : c;
+        })
+      : anteriores.filter((a) => a.tipologia === 'COMB');
+    // Severidade alta e código "COMB": vêm antes de todos, como na ordem do back-end.
+    const todos = [...combinacoes, ...alertas];
+    this.alertasPorCaso.set(String(casoId), todos);
+    return todos.map(clonarAlerta);
+  }
+
+  /**
+   * Alerta de combinação (COMB): uma entidade com alertas de tipologias distintas em número e em
+   * soma de pesos iguais ou maiores que os mínimos. Simplificação do simulado: a entidade de um
+   * alerta é a primeira da lista `entidades`. Alertas descartados não entram.
+   */
+  private combinar(casoId: Id, alertas: Alerta[], p: ParametrosTipologias): Alerta[] {
+    const minimoTipologias = p.comb_minimo_tipologias ?? PARAMETROS_TIPOLOGIAS_DEMO.comb_minimo_tipologias;
+    const pesoMinimo = p.comb_peso_minimo ?? PARAMETROS_TIPOLOGIAS_DEMO.comb_peso_minimo;
+    const porEntidade = new Map<string, Alerta[]>();
+    for (const a of alertas) {
+      if (a.tipologia === 'COMB' || (a.situacao ?? 'pendente') === 'descartado' || !a.entidades.length) continue;
+      const chave = String(a.entidades[0]);
+      porEntidade.set(chave, [...(porEntidade.get(chave) ?? []), a]);
+    }
+    const saida: Alerta[] = [];
+    for (const [entidadeId, doAlvo] of porEntidade) {
+      const componentes: ComponenteCombinacao[] = doAlvo.map((a) => {
+        const peso = PESOS_COMBINACAO_DEMO[a.tipologia] ?? 0;
+        return {
+          alerta_id: a.id,
+          tipologia: a.tipologia,
+          tipologia_nome: a.tipologia_nome ?? POLITICAS_DEMO[a.tipologia].nome,
+          titulo: a.titulo,
+          severidade: a.severidade,
+          situacao: a.situacao ?? 'pendente',
+          peso,
+          sinal_fraco: a.sinal_fraco === true,
+          conta: peso > 0,
+          observacao: a.tipologia === 'L8' ? OBSERVACAO_L8_DEMO : '',
+        };
+      });
+      const contam = componentes.filter((c) => c.conta);
+      const distintas = [...new Set(contam.map((c) => c.tipologia))];
+      const soma = contam.reduce((total, c) => total + c.peso, 0);
+      if (distintas.length < minimoTipologias || soma < pesoMinimo) continue;
+      const entidade = this.entidades(casoId).find((e) => mesmoId(e.id, entidadeId));
+      const rotulo = entidade?.rotulo ?? entidadeId;
+      const evidencias = doAlvo.flatMap((a) => a.evidencias).filter((ev, i, todas) => todas.findIndex((x) => mesmoId(x.captura_id, ev.captura_id) && x.descricao === ev.descricao) === i);
+      const { nome, severidade, prefere_evitar, politica_erro } = POLITICAS_DEMO.COMB;
+      const numero = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 1 });
+      saida.push({
+        id: `alr-comb-${entidadeId}`,
+        tipologia: 'COMB',
+        titulo: `Combinação de alertas em ${rotulo}: ${distintas.length} tipologias distintas`,
+        motivo:
+          `${rotulo} acumula ${contam.length} alerta(s) de ${distintas.length} tipologias distintas (${distintas.join(', ')}), com soma de pesos ` +
+          `${numero(soma)} (mínimos: ${minimoTipologias} tipologias e peso ${numero(pesoMinimo)}). ${AVISO_COMBINACAO_DEMO}`,
+        severidade,
+        tipologia_nome: nome,
+        prefere_evitar,
+        politica_erro,
+        situacao: 'pendente',
+        decisao: null,
+        decisoes: [],
+        ativo: true,
+        grupo: 'combinacao',
+        sinal_fraco: false,
+        peso: 0,
+        entidades: [entidadeId],
+        evidencias,
+        parametros: {
+          entidade_id: entidadeId,
+          entidade_rotulo: rotulo,
+          entidade_tipo: entidade?.tipo ?? '',
+          tipologias_distintas: distintas.length,
+          soma_pesos: soma,
+          comb_minimo_tipologias: minimoTipologias,
+          comb_peso_minimo: pesoMinimo,
+          componentes,
+          aviso: AVISO_COMBINACAO_DEMO,
+        },
+      });
+    }
+    return saida.sort((a, b) => a.titulo.localeCompare(b.titulo));
   }
 
   async listarAlertas(casoId: Id): Promise<Alerta[]> {
@@ -1879,7 +2035,7 @@ function clonarAlerta(a: Alerta): Alerta {
     ...a,
     entidades: [...a.entidades],
     evidencias: a.evidencias.map((e) => ({ ...e })),
-    parametros: { ...a.parametros },
+    parametros: structuredClone(a.parametros),
     decisao: a.decisao ? { ...a.decisao } : null,
     decisoes: (a.decisoes ?? []).map((d) => ({ ...d })),
   };

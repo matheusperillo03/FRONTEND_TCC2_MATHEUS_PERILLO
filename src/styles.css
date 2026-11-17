@@ -18,6 +18,7 @@
   --cor-sancao: var(--red-vivid-60);
   --cor-candidato: var(--magenta-vivid-60);
   --cor-edital: var(--cyan-vivid-60);
+  --cor-convenio: var(--indigo-vivid-60);
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
@@ -223,6 +224,7 @@ tr.linha-quebra td { background-color: var(--danger-alternative); }
 .etiqueta-sancao { background: var(--cor-sancao); }
 .etiqueta-candidato { background: var(--cor-candidato); }
 .etiqueta-edital { background: var(--cor-edital); }
+.etiqueta-convenio { background: var(--cor-convenio); }
 /* Possível coincidência (T7 e T9 de pessoa física): aviso, não identificação. */
 .etiqueta-coincidencia { background: var(--warning); color: var(--gray-80); white-space: normal; }
 .etiqueta-por-execucao { background: var(--blue-warm-vivid-80); }
@@ -312,6 +314,7 @@ tr.linha-quebra td { background-color: var(--danger-alternative); }
 .legenda-hexagon { clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
 .legenda-diamond { transform: rotate(45deg) scale(0.8); }
 .legenda-octagon { clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.legenda-triangle { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .legenda-star { clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
 .legenda-aresta { border-top: 2px solid var(--gray-60); display: inline-block; width: 22px; }
 .legenda-sep { background: var(--border-color); height: 14px; width: 1px; }
@@ -470,3 +473,20 @@ tr.linha-quebra td { background-color: var(--danger-alternative); }
 .tipologia-catalogo-dl { display: grid; gap: var(--spacing-scale-half) var(--spacing-scale-2x); grid-template-columns: max-content 1fr; margin: var(--spacing-scale-base) 0; }
 .tipologia-catalogo-dl dt { color: var(--gray-70); font-weight: var(--font-weight-semi-bold); }
 .tipologia-catalogo-dl dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ---- Tipologias de lavagem (L), sinais fracos e alerta de combinação ---------- */
+.etiqueta-sinal-fraco { background: var(--gray-60); }
+.etiqueta-grupo { background: var(--gray-70); }
+.alerta:focus { outline: 2px dashed var(--blue-warm-vivid-70); outline-offset: 2px; }
+.alerta-combinacao { border-left-color: var(--red-vivid-60); border-left-width: var(--spacing-scale-base); }
+.alerta-sinal-fraco { border-left-color: var(--gray-40); }
+.alerta-combinacao-detalhe { border-top: 1px solid var(--gray-20); margin-top: var(--spacing-scale-baseh); padding-top: var(--spacing-scale-base); }
+.combinacao-totais { display: grid; gap: var(--spacing-scale-half) var(--spacing-scale-2x); grid-template-columns: max-content 1fr; margin: var(--spacing-scale-base) 0; }
+.combinacao-totais dt { color: var(--gray-70); font-weight: var(--font-weight-semi-bold); }
+.combinacao-totais dd { margin: 0; }
+tr.componente-nao-conta td { color: var(--gray-60); }
+.grupo-alertas { display: flex; flex-direction: column; gap: var(--spacing-scale-baseh); }
+.grupo-alertas > h3 { margin: var(--spacing-scale-base) 0 0; }
+.sinais-fracos { border: 1px dashed var(--gray-40); padding: var(--spacing-scale-base) var(--spacing-scale-2x); }
+.grupo-tipologias > h3 { margin: var(--spacing-scale-2x) 0 var(--spacing-scale-half); }
+.limiares-lavagem summary { cursor: pointer; }

@@ -7,7 +7,7 @@ import { clienteFalso } from '../../test/clienteFalso';
 import { formatarCnpj } from '../../cnpj';
 import { cnpjAlfanumerico, comDvErrado } from '../../test/cnpjSintetico';
 import { comVerificadorErrado, cpfSinteticoValido, mascarado, pontuado } from '../../test/cpfSintetico';
-import { AbaColeta, ResultadoComparacao, lerCnpjs } from './AbaColeta';
+import { AbaColeta, ResultadoComparacao, lerCnpjs, lerNomes } from './AbaColeta';
 
 function coleta(parcial: Partial<ColetaRegistro>): ColetaRegistro {
   return {
@@ -244,7 +244,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
 
   it('Portal da Transparência, CEIS: por padrão consulta as contratadas do caso (do_caso)', async () => {
     const { usuario, enviar } = renderizar();
-    await usuario.click(screen.getByLabelText(/Portal da Transparência — CEIS, CNEP e servidores/));
+    await usuario.click(screen.getByLabelText(/Portal da Transparência — sanções/));
     expect(screen.getByLabelText(/CEIS — empresas inidôneas/)).toBeChecked();
     expect(screen.getByLabelText('Contratadas do caso')).toBeChecked();
     expect(await enviar()).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'ceis', do_caso: true } });
@@ -252,7 +252,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
 
   it('Portal da Transparência, CNEP com lista de CNPJs: valida os 14 dígitos e envia só os dígitos', async () => {
     const { usuario, enviar } = renderizar();
-    await usuario.click(screen.getByLabelText(/Portal da Transparência — CEIS, CNEP e servidores/));
+    await usuario.click(screen.getByLabelText(/Portal da Transparência — sanções/));
     await usuario.click(screen.getByLabelText(/CNEP — empresas punidas/));
     await usuario.click(screen.getByLabelText('Lista de CNPJs'));
     const botao = screen.getByRole('button', { name: 'Iniciar coleta' });
@@ -267,7 +267,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
 
   it('lista de CNPJs: aceita CNPJ alfanumérico sintético (com ou sem pontuação, em minúsculas) e recusa dígito verificador errado', async () => {
     const { usuario, enviar } = renderizar();
-    await usuario.click(screen.getByLabelText(/Portal da Transparência — CEIS, CNEP e servidores/));
+    await usuario.click(screen.getByLabelText(/Portal da Transparência — sanções/));
     await usuario.click(screen.getByLabelText('Lista de CNPJs'));
     const alfa = cnpjAlfanumerico();
     const outro = cnpjAlfanumerico();
@@ -285,7 +285,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
   it('CNPJ do órgão: o campo aplica a máscara, aceita letras e envia as 14 posições em maiúsculas', async () => {
     const { usuario, enviar } = renderizar();
     const alfa = cnpjAlfanumerico();
-    await usuario.click(screen.getByLabelText(/Portal da Transparência — CEIS, CNEP e servidores/));
+    await usuario.click(screen.getByLabelText(/Portal da Transparência — sanções/));
     await usuario.click(screen.getByLabelText('Servidores de um órgão'));
     await usuario.type(screen.getByLabelText('Código SIAPE do órgão'), '90001');
     const campo = screen.getByLabelText('CNPJ do órgão contratante');
@@ -307,7 +307,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
 
   it('Portal da Transparência, servidores: código SIAPE (lotação ou exercício) e CNPJ do órgão, com o aviso da correspondência declarada', async () => {
     const { usuario, enviar } = renderizar();
-    await usuario.click(screen.getByLabelText(/Portal da Transparência — CEIS, CNEP e servidores/));
+    await usuario.click(screen.getByLabelText(/Portal da Transparência — sanções/));
     await usuario.click(screen.getByLabelText('Servidores de um órgão'));
     expect(screen.getByText(/declarada por você/)).toBeInTheDocument();
     expect(screen.getByText(/não há tabela oficial conferida que ligue os dois/)).toBeInTheDocument();
@@ -375,7 +375,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
   it('fonte não configurada aparece como aviso neutro, com o motivo, e não como erro', async () => {
     const motivo = 'Portal da Transparência não configurado: defina a chave de API.';
     const { usuario, enviar } = renderizar({ ...RESULTADO, captura_ids: [], entidades_novas: 0, situacao: 'nao_configurado', tentativas: 0, motivo, avisos: [motivo] });
-    await usuario.click(screen.getByLabelText(/Portal da Transparência — CEIS, CNEP e servidores/));
+    await usuario.click(screen.getByLabelText(/Portal da Transparência — sanções/));
     await enviar();
     const aviso = (await screen.findByText('Fonte não configurada.')).closest('.br-message')!;
     expect(aviso).toHaveClass('info');
@@ -397,5 +397,83 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
     expect(within(linha).getAllByText(/Portal da Transparência não configurado/)).toHaveLength(1);
     expect(screen.getByText(/1 coleta\(s\) deste caso ficaram como "fonte não configurada"/)).toBeInTheDocument();
     expect(screen.getByText(/1 coleta\(s\) deste caso falharam/)).toBeInTheDocument();
+  });
+});
+
+describe('RF01: recursos do Portal da Transparência das tipologias de lavagem (CEPIM, CEAF e convênios)', () => {
+  const RESULTADO: ColetaResultado = { captura_ids: [], entidades_novas: 0, avisos: [], coleta_id: 'col-91', situacao: 'sucesso', tentativas: 1, motivo: '', conector_nome: 'portal_transparencia', conector_versao: '1.0.0' };
+
+  async function renderizar(recurso: RegExp) {
+    const usuario = userEvent.setup();
+    const iniciarColeta = vi.fn(async (_casoId: unknown, _corpo: ColetaRequisicao) => RESULTADO);
+    render(
+      <SessaoProvider cliente={clienteFalso({ iniciarColeta })}>
+        <AbaColeta casoId="caso-1" />
+      </SessaoProvider>,
+    );
+    await usuario.click(screen.getByLabelText(/Portal da Transparência — sanções/));
+    await usuario.click(screen.getByLabelText(recurso));
+    const botao = screen.getByRole('button', { name: 'Iniciar coleta' });
+    const enviar = async () => {
+      await usuario.click(botao);
+      await waitFor(() => expect(iniciarColeta).toHaveBeenCalled());
+      return iniciarColeta.mock.calls.at(-1)![1];
+    };
+    return { usuario, iniciarColeta, enviar, botao };
+  }
+
+  it('CEPIM: por padrão consulta as entidades do caso (do_caso); com lista, envia os CNPJs só com dígitos', async () => {
+    const { usuario, enviar } = await renderizar(/CEPIM — entidades sem fins lucrativos impedidas/);
+    expect(screen.getByLabelText('Entidades do caso')).toBeChecked();
+    expect(await enviar()).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'cepim', do_caso: true } });
+    await usuario.click(screen.getByLabelText('Lista de CNPJs'));
+    await usuario.type(screen.getByLabelText('CNPJs a consultar'), '90.000.006/0001-51');
+    expect(await enviar()).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'cepim', codigoSancionado: ['90000006000151'] } });
+  });
+
+  it('convênios: "do caso" são as entidades sem fins lucrativos, pela natureza jurídica; a lista é de CNPJs do convenente', async () => {
+    const { usuario, enviar, botao } = await renderizar(/Convênios — por convenente/);
+    expect(screen.getByLabelText('Entidades sem fins lucrativos do caso')).toBeChecked();
+    expect(screen.getByTestId('alvo-do-caso')).toHaveTextContent('reconhecidas pela natureza jurídica no CNPJ');
+    expect(await enviar()).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'convenios', do_caso: true } });
+    await usuario.click(screen.getByLabelText('Lista de CNPJs'));
+    expect(botao).toBeDisabled();
+    await usuario.type(screen.getByLabelText('CNPJs a consultar'), '90000007000104');
+    expect(await enviar()).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'convenios', codigoSancionado: ['90000007000104'] } });
+  });
+
+  it('CEAF: "do caso" consulta os sócios pelo nome, e a tela diz que nunca é por CPF', async () => {
+    const { enviar } = await renderizar(/CEAF — expulsões da administração federal/);
+    expect(screen.getByLabelText('Sócios das contratadas e convenentes do caso')).toBeChecked();
+    expect(screen.getByTestId('alvo-do-caso')).toHaveTextContent('só pelo nome, nunca por CPF');
+    expect(screen.getByTestId('alvo-do-caso')).toHaveTextContent('possível coincidência, não identificação');
+    expect(await enviar()).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', do_caso: true } });
+  });
+
+  it('RNF04: CEAF com lista envia só nomes (nomeSancionado); item com CPF bloqueia o envio e não aparece completo na tela', async () => {
+    const { usuario, enviar, botao, iniciarColeta } = await renderizar(/CEAF — expulsões da administração federal/);
+    await usuario.click(screen.getByLabelText('Lista de nomes'));
+    expect(botao).toBeDisabled();
+    const cpf = cpfSinteticoValido();
+    const campo = screen.getByLabelText('Nomes a consultar');
+    await usuario.type(campo, `FULANO FICTICIO DE TAL\n${pontuado(cpf)}`);
+    expect(botao).toBeDisabled();
+    const aviso = screen.getByText(/Não é nome \(tem dígitos ou não tem letras; CPF não é aceito\)/);
+    expect(aviso).toHaveTextContent(mascarado(cpf));
+    expect(aviso).not.toHaveTextContent(cpf);
+    expect(aviso).not.toHaveTextContent(pontuado(cpf));
+    expect(iniciarColeta).not.toHaveBeenCalled();
+
+    await usuario.clear(campo);
+    await usuario.type(campo, '  FULANO   FICTICIO DE TAL ;BELTRANA SINTETICA SOUZA\nFULANO FICTICIO DE TAL');
+    const corpo = await enviar();
+    expect(corpo).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', nomeSancionado: ['FULANO FICTICIO DE TAL', 'BELTRANA SINTETICA SOUZA'] } });
+    expect(JSON.stringify(corpo)).not.toMatch(/codigoSancionado|cpf/i);
+  });
+
+  it('lerNomes: um nome por linha ou por ponto e vírgula, sem repetição; dígitos e itens sem letras são recusados', () => {
+    expect(lerNomes('ANA EXEMPLO\n\nJOSE D\'AVILA FICTICIO; ana exemplo;ANA EXEMPLO')).toEqual({ nomes: ['ANA EXEMPLO', "JOSE D'AVILA FICTICIO", 'ana exemplo'], invalidos: [] });
+    expect(lerNomes('12345678900\n---\nMARIA 2')).toEqual({ nomes: [], invalidos: ['12345678900', '---', 'MARIA 2'] });
+    expect(lerNomes('  ')).toEqual({ nomes: [], invalidos: [] });
   });
 });

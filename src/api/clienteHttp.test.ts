@@ -257,3 +257,60 @@ describe('ClienteHttp — rotas do horizonte 2 do backlog', () => {
     await expect(desativado.cliente.executarMonitoramento('c', 'm')).rejects.toMatchObject({ status: 409, detalhe: 'O monitoramento está desativado.' });
   });
 });
+
+describe('RF04: ClienteHttp com as tipologias de lavagem e a combinação', () => {
+  it('RF14: executarAlertas envia os códigos L e COMB e os limiares novos por execução, como foram informados', async () => {
+    const { cliente, fetchImpl } = criar({ corpo: [] });
+    const parametros = {
+      l1_minimo_estabelecimentos: 5,
+      l1_janela_abertura_dias: 30,
+      l1_minimo_abertas_na_janela: 3,
+      l3_minimo_empresas: 4,
+      l3_minimo_abertas_na_janela: 2,
+      l3_janela_meses: 12,
+      l4_minimo_niveis: 3,
+      l7_dias_apos_abertura: 0,
+      l7_meses_antes_contrato: 6,
+      l14_valor_minimo: 250000.5,
+      l15_minimo_cnaes: 20,
+      l15_minimo_categorias: 5,
+      l16_dias_minimos: 180,
+      comb_minimo_tipologias: 3,
+      comb_peso_minimo: 2.5,
+    };
+    const tipologias = ['L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16', 'COMB'] as const;
+    await cliente.executarAlertas('c1', { tipologias: [...tipologias], parametros });
+    const init = fetchImpl.mock.calls[0][1] as RequestInit;
+    expect(url(fetchImpl)).toBe('http://api.teste:8000/casos/c1/alertas/executar');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ tipologias: [...tipologias], parametros });
+    expect(cabecalhos(fetchImpl)['X-Justificativa']).toBeDefined();
+  });
+
+  it('lê os campos novos do alerta e do catálogo (grupo, sinal_fraco, peso e componentes da combinação) sem alterá-los', async () => {
+    const alerta = {
+      id: 'a-9', tipologia: 'COMB', titulo: 'Combinação', motivo: 'm', severidade: 'alta', entidades: ['e-1'], evidencias: [],
+      grupo: 'combinacao', sinal_fraco: false, peso: 0,
+      parametros: { soma_pesos: 2.5, tipologias_distintas: 3, componentes: [{ alerta_id: 'a-1', tipologia: 'L14', titulo: 't', peso: 0.5, sinal_fraco: true, conta: true, observacao: '' }] },
+    };
+    const alertas = await criar({ corpo: [alerta] }).cliente.listarAlertas('c1');
+    expect(alertas[0]).toEqual(alerta);
+    const item = { codigo: 'L14', nome: 'n', historia: '', severidade: 'baixa', prefere_evitar: 'falso_positivo', politica_erro: 'p', regra: 'r', base: 'b', fontes: [], parametros: [], grupo: 'lavagem', sinal_fraco: true, peso: 0.5 };
+    const catalogo = await criar({ corpo: [item] }).cliente.listarTipologias();
+    expect(catalogo[0]).toMatchObject({ grupo: 'lavagem', sinal_fraco: true, peso: 0.5 });
+  });
+
+  it('RF01: coleta de CEPIM, CEAF e convênios envia o recurso e os parâmetros do contrato (CEAF só por nome)', async () => {
+    const { cliente, fetchImpl } = criar({ corpo: { captura_ids: [], entidades_novas: 0 } });
+    await cliente.iniciarColeta('c1', { fonte: 'portal_transparencia', parametros: { recurso: 'cepim', codigoSancionado: ['90000006000151'] } });
+    await cliente.iniciarColeta('c1', { fonte: 'portal_transparencia', parametros: { recurso: 'convenios', do_caso: true } });
+    await cliente.iniciarColeta('c1', { fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', nomeSancionado: ['FULANO FICTICIO DE TAL'] } });
+    await cliente.iniciarColeta('c1', { fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', do_caso: true } });
+    const corpo = (i: number) => JSON.parse(String((fetchImpl.mock.calls[i][1] as RequestInit).body));
+    expect(corpo(0)).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'cepim', codigoSancionado: ['90000006000151'] } });
+    expect(corpo(1)).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'convenios', do_caso: true } });
+    expect(corpo(2)).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', nomeSancionado: ['FULANO FICTICIO DE TAL'] } });
+    expect(corpo(3)).toEqual({ fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', do_caso: true } });
+    expect(url(fetchImpl, 3)).toBe('http://api.teste:8000/casos/c1/coletas');
+  });
+});

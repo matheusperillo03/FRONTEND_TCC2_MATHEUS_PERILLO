@@ -28,6 +28,7 @@ import type {
   Tipologia,
   TipologiaCatalogo,
 } from './tipos';
+import { TIPOLOGIAS, grupoDaTipologia } from './tipos';
 
 export const CASO_DEMO: Caso = {
   id: 'caso-1',
@@ -1105,16 +1106,129 @@ export const POLITICAS_DEMO: Record<Tipologia, { nome: string; severidade: strin
     politica_erro:
       'Prefere evitar falso negativo: aponta toda ocorrência textual das expressões configuradas, mesmo fora do capítulo de habilitação. O falso positivo é frequente; cada alerta traz o trecho literal e a posição para conferência imediata.',
   },
+  // ---- Tipologias de lavagem e ocultação (L) e combinação. Nomes e severidades são os do contrato
+  // da API; `prefere_evitar` e o texto da política são ilustrativos no simulado (o real vem do back-end).
+  L1: {
+    nome: 'Endereço de registro em massa',
+    severidade: 'baixa',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: só dispara com muitos estabelecimentos ativos no mesmo endereço (com o complemento). Mesmo assim o falso positivo é alto: centro empresarial, escritório de contabilidade usado como domicílio fiscal e coworking.',
+  },
+  L3: {
+    nome: 'Mesmo administrador ou representante em muitas empresas',
+    severidade: 'media',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: exige várias empresas e a abertura concentrada numa janela. É possível coincidência: seis dígitos do CPF e o nome não identificam uma pessoa; empresários com várias empresas e holdings familiares também disparam.',
+  },
+  L4: {
+    nome: 'Cadeia societária em camadas',
+    severidade: 'media',
+    prefere_evitar: 'falso_negativo',
+    politica_erro:
+      'Prefere evitar falso negativo: aponta toda cadeia com o número mínimo de níveis de sócio pessoa jurídica. Grupos econômicos legítimos, fundos e companhias abertas também disparam.',
+  },
+  L5: {
+    nome: 'Sócio estrangeiro (nível 1)',
+    severidade: 'baixa',
+    prefere_evitar: 'falso_negativo',
+    politica_erro:
+      'Prefere evitar falso negativo: aponta todo sócio estrangeiro em empresa do caso. O falso positivo é alto, porque o investimento estrangeiro é legítimo; não há lista de jurisdições neste nível.',
+  },
+  L6: {
+    nome: 'Porte ou regime incompatível com o valor contratado',
+    severidade: 'media',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: compara a soma contratada no ano com o limite legal de receita daquele ano e tolera a diferença entre limites de anos vizinhos. Contrato plurianual, porte desatualizado no cadastro e exclusão posterior do regime ainda geram falso positivo.',
+  },
+  L7: {
+    nome: 'Fundadores substituídos logo após a abertura',
+    severidade: 'media',
+    prefere_evitar: 'falso_negativo',
+    politica_erro:
+      'Prefere evitar falso negativo: usa só o retrato atual do quadro societário. Venda legítima da empresa e sucessão familiar também disparam; quem saiu antes da primeira coleta não aparece.',
+  },
+  L8: {
+    nome: 'Empresa recém-aberta com sócio que possivelmente é agente público',
+    severidade: 'alta',
+    prefere_evitar: 'falso_negativo',
+    politica_erro:
+      'Prefere evitar falso negativo: é a composição de T1 com T7 na mesma contratada e herda os homônimos da T7 (possível coincidência, nunca identificação). Não soma na combinação, porque T1 e T7 já contam.',
+  },
+  L10: {
+    nome: 'Vínculo com empresa sancionada ou com pessoa expulsa da administração',
+    severidade: 'media',
+    prefere_evitar: 'falso_negativo',
+    politica_erro:
+      'Prefere evitar falso negativo: aponta sócio-administrador provável ou endereço em comum com empresa sancionada, e sócio que possivelmente coincide com pessoa do CEAF (pelo nome). Endereço compartilhado legítimo, sócio que saiu antes da sanção e homônimos geram falso positivo.',
+  },
+  L14: {
+    nome: 'Sócio em faixa etária atípica em empresa contratada',
+    severidade: 'baixa',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: só dispara quando todos os sócios-administradores estão nas faixas atípicas e o valor contratado passa do mínimo. É sinal fraco: herança, sucessão e empresa familiar legítima são comuns.',
+  },
+  L15: {
+    nome: 'Número excessivo de atividades econômicas',
+    severidade: 'baixa',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: exige muitos CNAEs ou contratos em muitas categorias de objeto. É sinal fraco: muitas empresas registram atividades a mais por precaução.',
+  },
+  L16: {
+    nome: 'Entidade sem fins lucrativos convenente com sinais de fachada',
+    severidade: 'media',
+    prefere_evitar: 'falso_negativo',
+    politica_erro:
+      'Prefere evitar falso negativo: basta um dos sinais (abertura recente antes da vigência, registro no CEPIM ou dirigente que possivelmente coincide com agente público). Entidades legítimas costumam ter dirigentes com atuação pública.',
+  },
+  COMB: {
+    nome: 'Combinação de alertas na mesma entidade',
+    severidade: 'alta',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: só dispara com o número mínimo de tipologias distintas e a soma mínima de pesos na mesma entidade; alertas descartados não entram. Não é escore de culpa: os pesos são decisão do autor e a combinação continua sendo pista.',
+  },
 };
+
+/** Sinais fracos: sozinhos não indicam nada; só pesam no alerta de combinação. */
+export const SINAIS_FRACOS_DEMO: ReadonlySet<Tipologia> = new Set<Tipologia>(['L14', 'L15']);
+
+/** Peso de cada tipologia na combinação (`comb_pesos`). L8 é composição de T1 e T7, já contadas. */
+export const PESOS_COMBINACAO_DEMO: Record<Tipologia, number> = Object.fromEntries(
+  TIPOLOGIAS.map((t) => [t, t === 'COMB' || t === 'L8' ? 0 : SINAIS_FRACOS_DEMO.has(t) ? 0.5 : 1]),
+) as Record<Tipologia, number>;
+
+export const AVISO_COMBINACAO_DEMO = 'Não é escore de culpa: é uma pista para priorizar a análise (RF12).';
+
+export const OBSERVACAO_L8_DEMO = 'Composição de T1 e T7, já contadas separadamente.';
 
 function politicaDe(tipologia: Tipologia) {
   const { nome, prefere_evitar, politica_erro } = POLITICAS_DEMO[tipologia];
-  return { tipologia_nome: nome, prefere_evitar, politica_erro, situacao: 'pendente' as const, decisao: null, decisoes: [], ativo: true };
+  return {
+    tipologia_nome: nome,
+    prefere_evitar,
+    politica_erro,
+    situacao: 'pendente' as const,
+    decisao: null,
+    decisoes: [],
+    ativo: true,
+    grupo: grupoDaTipologia(tipologia),
+    sinal_fraco: SINAIS_FRACOS_DEMO.has(tipologia),
+    peso: PESOS_COMBINACAO_DEMO[tipologia],
+  };
 }
 
 /**
  * Na ordem em que o back-end devolve: severidade (alta, média, baixa), depois o código da
- * tipologia como texto (por isso T10 vem antes de T2) e o título.
+ * tipologia como texto (por isso T10 vem antes de T2, e as L antes das T) e o título.
+ *
+ * Tipologias de lavagem: a ALFA (emp-1) tem um alerta L normal (L6) e um sinal fraco (L14),
+ * além de T1, T2 e T3. O alerta de combinação não fica nesta lista: o simulado o calcula a
+ * cada execução, a partir dos alertas da mesma entidade (`ClienteMock.executarAlertas`).
  */
 export const ALERTAS: Alerta[] = [
   {
@@ -1195,6 +1309,29 @@ export const ALERTAS: Alerta[] = [
       codigo_orgao_siape: '90001',
       contratos: 3,
       identidade_confirmada: false,
+    },
+  },
+  {
+    id: 'alr-12',
+    tipologia: 'L6',
+    titulo: 'ALFA SOLUÇÕES EM TI LTDA: R$ 1.200.000,00 contratados em 2026, acima do limite de receita da microempresa',
+    motivo:
+      'ALFA SOLUÇÕES EM TI LTDA (CNPJ 12.345.678/0001-95) está cadastrada com porte de microempresa (ME), cujo limite ' +
+      'de receita bruta anual é de R$ 360.000,00 (Lei Complementar nº 123/2006, art. 3º, I), mas os contratos que ' +
+      'assinou em 2026 somam R$ 1.200.000,00. É indício a verificar: o valor global de um contrato plurianual não é ' +
+      'receita de um só ano, e o porte no cadastro pode estar desatualizado.',
+    severidade: POLITICAS_DEMO.L6.severidade,
+    ...politicaDe('L6'),
+    entidades: ['emp-1', 'con-1'],
+    evidencias: [ev('Porte da empresa: microempresa (tabela Empresas do CNPJ)', 'cap-1'), ev('Valor global do contrato assinado em 10/02/2026 (PNCP)', 'cap-4')],
+    parametros: {
+      ano: '2026',
+      regime_ou_porte: 'ME',
+      limite_anual: 360000,
+      fonte_limite: 'Lei Complementar nº 123/2006, art. 3º, I',
+      soma_contratada: 1200000,
+      contratos: 1,
+      l6_tolerancia_transicao: true,
     },
   },
   {
@@ -1364,6 +1501,21 @@ export const ALERTAS: Alerta[] = [
     },
   },
   {
+    id: 'alr-13',
+    tipologia: 'L14',
+    titulo: 'Sócio-administrador de ALFA SOLUÇÕES EM TI LTDA em faixa etária atípica',
+    motivo:
+      'O único sócio-administrador de ALFA SOLUÇÕES EM TI LTDA está na faixa etária 9 (maiores de 80 anos) da tabela ' +
+      'Sócios do CNPJ, e a empresa tem R$ 1.200.000,00 em contratos, acima do mínimo de R$ 100.000,00. Sinal fraco: ' +
+      'sozinho não indica nada (herança, sucessão e empresa familiar são comuns); só pesa no alerta de combinação. ' +
+      'A idade é dado pessoal: só a faixa é mostrada.',
+    severidade: POLITICAS_DEMO.L14.severidade,
+    ...politicaDe('L14'),
+    entidades: ['emp-1', 'pes-1', 'con-1'],
+    evidencias: [ev('Faixa etária do sócio-administrador (tabela Sócios do CNPJ)', 'cap-2'), ev('Valor global do contrato (PNCP)', 'cap-4')],
+    parametros: { faixa_etaria: '9', faixa_etaria_descricao: 'maiores de 80 anos', socios_administradores: 1, valor_contratado: 1200000, l14_valor_minimo: 100000 },
+  },
+  {
     id: 'alr-11',
     tipologia: 'T10',
     titulo: 'Exigência de certidão negativa de quitação no edital edital_restritivo.txt',
@@ -1432,6 +1584,9 @@ export const ALERTAS: Alerta[] = [
   },
 ];
 
+const FONTE_LC_123 = 'Lei Complementar nº 123/2006';
+const FONTE_LC_MEI_2027 = 'Lei Complementar nº 238/2026 (https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp238.htm)';
+
 const FONTE_LIMITES_2026 =
   'Decreto nº 12.807, de 29/12/2025, Anexo (art. 75, caput, I e II, da Lei nº 14.133/2021); https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/decreto/d12807.htm';
 
@@ -1447,9 +1602,64 @@ export const PARAMETROS_TIPOLOGIAS_DEMO = {
   t8_percentual_limite_reforma: 50,
   t9_situacoes_eleito: ['ELEITO', 'ELEITO POR QP', 'ELEITO POR MÉDIA'],
   t10_expressoes_extras: [] as string[],
+  // Tipologias de lavagem e combinação. Os limiares são ilustrativos no simulado (o valor em vigor
+  // vem do back-end); os limites da L6 são os da lei, com a fonte.
+  l1_minimo_estabelecimentos: 5,
+  l1_janela_abertura_dias: 30,
+  l1_minimo_abertas_na_janela: 3,
+  l3_minimo_empresas: 3,
+  l3_minimo_abertas_na_janela: 2,
+  l3_janela_meses: 12,
+  qualificacoes_administracao: ['05', '10', '16', '49'],
+  l4_minimo_niveis: 2,
+  l6_limites: {
+    mei: {
+      '2026': { anual: 81000, mensal_inicio: 6750, fonte: FONTE_LC_123 + ', art. 18-A, §§ 1º e 2º' },
+      '2027': { anual: 110000, mensal_inicio: 9166.67, fonte: FONTE_LC_MEI_2027 + ', art. 2º (efeitos em 1º/1/2027)' },
+      '2028': { anual: 140000, mensal_inicio: 11666.67, fonte: FONTE_LC_MEI_2027 + ', art. 1º (efeitos em 1º/1/2028)' },
+    },
+    me: { anual: 360000, fonte: FONTE_LC_123 + ', art. 3º, I' },
+    epp: { anual: 4800000, fonte: FONTE_LC_123 + ', art. 3º, II' },
+    mei_ate: '2026',
+    mei_a_partir: '2028',
+  },
+  l6_tolerancia_transicao: true,
+  l7_dias_apos_abertura: 30,
+  l7_meses_antes_contrato: 12,
+  l14_valor_minimo: 100000,
+  l14_faixas_atipicas: ['1', '2', '9'],
+  l15_minimo_cnaes: 15,
+  l15_minimo_categorias: 4,
+  l16_dias_minimos: 180,
+  l16_naturezas_sem_fins_lucrativos: ['3069', '3999'],
+  comb_minimo_tipologias: 2,
+  comb_peso_minimo: 2,
+  comb_pesos: PESOS_COMBINACAO_DEMO,
 };
 
-const POR_EXECUCAO = new Set(['t1_dias_minimos', 't2_minimo_empresas', 't3_razao_minima', 't5_minimo_contratacoes', 't8_percentual_limite', 't8_percentual_limite_reforma']);
+const POR_EXECUCAO = new Set([
+  't1_dias_minimos',
+  't2_minimo_empresas',
+  't3_razao_minima',
+  't5_minimo_contratacoes',
+  't8_percentual_limite',
+  't8_percentual_limite_reforma',
+  'l1_minimo_estabelecimentos',
+  'l1_janela_abertura_dias',
+  'l1_minimo_abertas_na_janela',
+  'l3_minimo_empresas',
+  'l3_minimo_abertas_na_janela',
+  'l3_janela_meses',
+  'l4_minimo_niveis',
+  'l7_dias_apos_abertura',
+  'l7_meses_antes_contrato',
+  'l14_valor_minimo',
+  'l15_minimo_cnaes',
+  'l15_minimo_categorias',
+  'l16_dias_minimos',
+  'comb_minimo_tipologias',
+  'comb_peso_minimo',
+]);
 
 const DESCRICAO_PARAMETROS: Record<keyof typeof PARAMETROS_TIPOLOGIAS_DEMO, string> = {
   t1_dias_minimos: 'Dias mínimos entre o início da atividade e a assinatura do contrato.',
@@ -1463,6 +1673,27 @@ const DESCRICAO_PARAMETROS: Record<keyof typeof PARAMETROS_TIPOLOGIAS_DEMO, stri
   t8_percentual_limite_reforma: 'Limite de acréscimo em % para reforma de edifício ou de equipamento (art. 125).',
   t9_situacoes_eleito: 'Situações de totalização do TSE que contam como eleito.',
   t10_expressoes_extras: 'Expressões regulares além das do código (certidão negativa de quitação; certidão de quitação).',
+  l1_minimo_estabelecimentos: 'Número mínimo de estabelecimentos ativos no mesmo endereço (com o complemento).',
+  l1_janela_abertura_dias: 'Janela, em dias, para contar as empresas abertas quase ao mesmo tempo no endereço.',
+  l1_minimo_abertas_na_janela: 'Número mínimo de empresas abertas dentro da janela para aumentar a severidade.',
+  l3_minimo_empresas: 'Número mínimo de empresas em que a mesma pessoa provável tem qualificação de administração.',
+  l3_minimo_abertas_na_janela: 'Quantas dessas empresas precisam ter sido abertas dentro da janela.',
+  l3_janela_meses: 'Janela, em meses, para a abertura das empresas do mesmo administrador.',
+  qualificacoes_administracao: 'Códigos de qualificação do sócio (tabela de domínio do CNPJ) que contam como administração.',
+  l4_minimo_niveis: 'Número mínimo de níveis de sócio pessoa jurídica na cadeia de controle.',
+  l6_limites: 'Limites de receita por regime ou porte (MEI por ano-calendário, ME e EPP), com a fonte.',
+  l6_tolerancia_transicao: 'Trata a diferença entre os limites do MEI de anos vizinhos como faixa de tolerância.',
+  l7_dias_apos_abertura: 'Dias depois do início da atividade em que a entrada de um sócio ainda conta como de fundador.',
+  l7_meses_antes_contrato: 'Meses antes do contrato em que a entrada dos sócios atuais é considerada recente.',
+  l14_valor_minimo: 'Valor contratado mínimo, em reais, para o sinal de faixa etária atípica.',
+  l14_faixas_atipicas: 'Códigos de faixa etária do sócio (layout do CNPJ) tratados como atípicos.',
+  l15_minimo_cnaes: 'Número mínimo de CNAEs (principal e secundários) do estabelecimento.',
+  l15_minimo_categorias: 'Número mínimo de categorias de objeto contratadas pela mesma empresa.',
+  l16_dias_minimos: 'Dias mínimos entre o início da atividade da entidade e o início da vigência do convênio.',
+  l16_naturezas_sem_fins_lucrativos: 'Códigos de natureza jurídica tratados como entidade sem fins lucrativos.',
+  comb_minimo_tipologias: 'Número mínimo de tipologias distintas na mesma entidade.',
+  comb_peso_minimo: 'Soma mínima dos pesos dos alertas da entidade.',
+  comb_pesos: 'Peso de cada tipologia na combinação (decisão do autor; 0 = não conta).',
 };
 
 const LEI_14133 = 'Lei nº 14.133/2021 (https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14133.htm)';
@@ -1511,27 +1742,107 @@ const DESCRICOES_TIPOLOGIAS: Record<Tipologia, [string, string, string, string[]
     ['edital_arquivo'],
     ['t10_expressoes_extras'],
   ],
+  // Tipologias de lavagem e combinação. A história fica em branco: o número é o do backlog, que o back-end informa.
+  L1: [
+    '',
+    'Endereço normalizado (com o complemento) compartilhado por N ou mais estabelecimentos ativos, com ao menos um ligado ao caso; severidade maior quando M ou mais abriram em menos de D dias.',
+    'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E (endereço de registro em massa); extensão da T2. Limiares: decisão do autor.',
+    ['cnpj_arquivo'],
+    ['l1_minimo_estabelecimentos', 'l1_janela_abertura_dias', 'l1_minimo_abertas_na_janela'],
+  ],
+  L3: [
+    '',
+    'Mesma pessoa provável (seis dígitos do CPF e nome normalizado; possível coincidência, sem fusão) com qualificação de administração em K ou mais empresas, das quais J ou mais abertas em menos de M meses.',
+    'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E (interpostas pessoas profissionais); Lei nº 12.846/2013, art. 5º, III. Limiares: decisão do autor.',
+    ['cnpj_arquivo'],
+    ['l3_minimo_empresas', 'l3_minimo_abertas_na_janela', 'l3_janela_meses', 'qualificacoes_administracao'],
+  ],
+  L4: [
+    '',
+    'Empresa do caso com caminho de controle de N ou mais níveis de sócio pessoa jurídica, sem pessoa física no primeiro nível.',
+    'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E (estrutura societária complexa sem justificativa aparente); Lei nº 12.846/2013, art. 5º, III. Limiar: decisão do autor.',
+    ['cnpj_arquivo'],
+    ['l4_minimo_niveis'],
+  ],
+  L5: ['', 'Empresa do caso com sócio estrangeiro (nível 1). Não há lista de jurisdições neste protótipo.', 'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E.', ['cnpj_arquivo'], []],
+  L6: [
+    '',
+    'Soma do valor dos contratos assinados pelo fornecedor no ano-calendário acima do limite de receita do regime ou porte vigente naquele ano (MEI, ME ou EPP).',
+    `${FONTE_LC_123}, art. 3º, I e II, e art. 18-A, §§ 1º e 2º; complementa a T3, que usa o capital social declarado.`,
+    ['cnpj_arquivo', 'pncp'],
+    ['l6_limites', 'l6_tolerancia_transicao'],
+  ],
+  L7: [
+    '',
+    'Nenhum sócio atual entrou até X dias depois do início da atividade, e os atuais entraram a menos de Y meses de um contrato.',
+    'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E (substituição de dirigentes ou sócios logo após a constituição). Limiares: decisão do autor.',
+    ['cnpj_arquivo', 'pncp'],
+    ['l7_dias_apos_abertura', 'l7_meses_antes_contrato'],
+  ],
+  L8: [
+    '',
+    'Contratada que dispara a T1 (aberta pouco antes do contrato) e a T7 (sócio que possivelmente coincide com servidor do órgão contratante). Possível coincidência, nunca identificação.',
+    'COAF, Casos e Casos: Tipologias (edição especial ANR 2021), 2.7: empresas recém-criadas cujos sócios têm vínculos públicos. Composição de T1 e T7.',
+    ['cnpj_arquivo', 'pncp', 'portal_transparencia (servidores)'],
+    [],
+  ],
+  L10: [
+    '',
+    'Contratada sem sanção própria que compartilha sócio-administrador provável ou endereço com empresa sancionada na data do contrato, ou sócio que possivelmente coincide (pelo nome) com pessoa expulsa da administração federal (CEAF).',
+    'Cadastros do Portal da Transparência (CGU): CEIS, CNEP, CEPIM e CEAF; Lei nº 12.846/2013, art. 5º, IV, e. Extensão da T6.',
+    ['cnpj_arquivo', 'pncp', 'portal_transparencia (ceis, cnep, cepim, ceaf)'],
+    ['qualificacoes_administracao'],
+  ],
+  L14: [
+    '',
+    'Contratada cujos sócios-administradores estão todos em faixa etária atípica, com valor contratado acima de V. Só a faixa etária é usada e mostrada.',
+    'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E (interposta pessoa informal). Sinal fraco. Limiar: decisão do autor.',
+    ['cnpj_arquivo', 'pncp'],
+    ['l14_valor_minimo', 'l14_faixas_atipicas'],
+  ],
+  L15: [
+    '',
+    'Estabelecimento com N ou mais CNAEs, ou contratos da mesma empresa em M ou mais categorias de objeto.',
+    'Velasco et al. (2021): grande número de classificações de atividade. Sinal fraco. Limiares: decisão do autor.',
+    ['cnpj_arquivo', 'pncp'],
+    ['l15_minimo_cnaes', 'l15_minimo_categorias'],
+  ],
+  L16: [
+    '',
+    'Convenente sem fins lucrativos com ao menos um sinal: aberta menos de N dias antes do início da vigência, registro no CEPIM ou dirigente que possivelmente coincide com servidor do órgão concedente.',
+    'COAF, Casos e Casos: Tipologias (edição especial ANR 2021), 2.1, 2.8 e 2.9; convênios e CEPIM do Portal da Transparência (CGU). Limiar: decisão do autor.',
+    ['cnpj_arquivo', 'portal_transparencia (convenios, cepim, servidores)'],
+    ['l16_dias_minimos', 'l16_naturezas_sem_fins_lucrativos'],
+  ],
+  COMB: [
+    '',
+    'Entidade que acumula alertas de K ou mais tipologias distintas, com soma de pesos igual ou maior que o mínimo. Alertas descartados não entram. Não é escore de culpa.',
+    'Velasco et al. (2021): o risco cresce quando os padrões aparecem combinados. Pesos e limiares: decisão do autor.',
+    [],
+    ['comb_minimo_tipologias', 'comb_peso_minimo', 'comb_pesos'],
+  ],
 };
 
-/** Catálogo de `GET /tipologias` no modo simulado, em ordem numérica. */
-export const TIPOLOGIAS_DEMO: TipologiaCatalogo[] = (Object.keys(DESCRICOES_TIPOLOGIAS) as Tipologia[])
-  .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
-  .map((codigo) => {
-    const [historia, regra, base, fontes, nomes] = DESCRICOES_TIPOLOGIAS[codigo];
-    const { nome, severidade, prefere_evitar, politica_erro } = POLITICAS_DEMO[codigo];
-    return {
-      codigo,
-      nome,
-      historia,
-      severidade,
-      prefere_evitar,
-      politica_erro,
-      regra,
-      base,
-      fontes,
-      parametros: nomes.map((n) => ({ nome: n, valor: PARAMETROS_TIPOLOGIAS_DEMO[n], descricao: DESCRICAO_PARAMETROS[n], por_execucao: POR_EXECUCAO.has(n) })),
-    };
-  });
+/** Catálogo de `GET /tipologias` no modo simulado, na ordem do back-end: T1 a T10, as L e a combinação. */
+export const TIPOLOGIAS_DEMO: TipologiaCatalogo[] = TIPOLOGIAS.map((codigo) => {
+  const [historia, regra, base, fontes, nomes] = DESCRICOES_TIPOLOGIAS[codigo];
+  const { nome, severidade, prefere_evitar, politica_erro } = POLITICAS_DEMO[codigo];
+  return {
+    codigo,
+    nome,
+    historia,
+    severidade,
+    prefere_evitar,
+    politica_erro,
+    regra,
+    base,
+    fontes,
+    parametros: nomes.map((n) => ({ nome: n, valor: PARAMETROS_TIPOLOGIAS_DEMO[n], descricao: DESCRICAO_PARAMETROS[n], por_execucao: POR_EXECUCAO.has(n) })),
+    grupo: grupoDaTipologia(codigo),
+    sinal_fraco: SINAIS_FRACOS_DEMO.has(codigo),
+    peso: PESOS_COMBINACAO_DEMO[codigo],
+  };
+});
 
 /**
  * Monitoramento contínuo do caso de demonstração (RF06, H18). A execução do

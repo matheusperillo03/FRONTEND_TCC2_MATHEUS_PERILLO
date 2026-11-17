@@ -30,7 +30,7 @@ const FONTES: { id: FonteColeta; rotulo: string }[] = [
   { id: 'cnpj_arquivo', rotulo: 'Dados abertos do CNPJ (arquivos no layout da Receita Federal)' },
   { id: 'pncp', rotulo: 'PNCP — API de consulta de contratos' },
   { id: 'pncp_termos', rotulo: 'PNCP — termos de contrato (aditivos e apostilamentos)' },
-  { id: 'portal_transparencia', rotulo: 'Portal da Transparência — CEIS, CNEP e servidores' },
+  { id: 'portal_transparencia', rotulo: 'Portal da Transparência — sanções (CEIS, CNEP, CEPIM, CEAF), convênios e servidores' },
   { id: 'tse_arquivo', rotulo: 'TSE — candidaturas e receitas de campanha (arquivos)' },
   { id: 'edital_arquivo', rotulo: 'Editais em texto ou PDF (arquivos .txt e .pdf)' },
 ];
@@ -55,6 +55,53 @@ export function lerCnpjs(texto: string): { cnpjs: string[]; invalidos: string[] 
   }
   return { cnpjs, invalidos };
 }
+
+/** Teto de nomes por consulta ao CEAF (SUPOSIÇÃO: o mesmo da lista de CNPJs; o contrato não fixa). */
+const MAXIMO_NOMES = 100;
+
+/**
+ * Nomes completos para a consulta ao CEAF, um por linha (ou separados por ponto e vírgula).
+ * O CEAF nunca é consultado por CPF: um item com dígitos é recusado, e não enviado.
+ */
+export function lerNomes(texto: string): { nomes: string[]; invalidos: string[] } {
+  const itens = texto
+    .split(/[\n;]+/)
+    .map((item) => item.trim().replace(/\s+/g, ' '))
+    .filter(Boolean);
+  const nomes: string[] = [];
+  const invalidos: string[] = [];
+  for (const item of itens) {
+    if (/\d/.test(item) || !/\p{L}{2,}/u.test(item)) invalidos.push(item);
+    else if (!nomes.includes(item)) nomes.push(item);
+  }
+  return { nomes, invalidos };
+}
+
+/** O que cada recurso de lista consulta quando a escolha é "do caso", e o rótulo da opção. */
+const ALVO_DO_CASO: Record<'ceis' | 'cnep' | 'cepim' | 'convenios' | 'ceaf', { rotulo: string; explicacao: string }> = {
+  ceis: {
+    rotulo: 'Contratadas do caso',
+    explicacao: 'Serão consultadas todas as empresas contratadas do caso; a lista explícita de CNPJs fica gravada nos parâmetros da coleta.',
+  },
+  cnep: {
+    rotulo: 'Contratadas do caso',
+    explicacao: 'Serão consultadas todas as empresas contratadas do caso; a lista explícita de CNPJs fica gravada nos parâmetros da coleta.',
+  },
+  cepim: {
+    rotulo: 'Entidades do caso',
+    explicacao: 'O servidor monta a lista de CNPJs a partir das entidades do caso; a lista explícita fica gravada nos parâmetros da coleta.',
+  },
+  convenios: {
+    rotulo: 'Entidades sem fins lucrativos do caso',
+    explicacao:
+      'Serão consultados os convênios das entidades sem fins lucrativos do caso, reconhecidas pela natureza jurídica no CNPJ; a lista explícita de CNPJs fica gravada nos parâmetros da coleta.',
+  },
+  ceaf: {
+    rotulo: 'Sócios das contratadas e convenentes do caso',
+    explicacao:
+      'Serão consultados os nomes dos sócios pessoa física das contratadas e convenentes do caso; a lista explícita de nomes fica gravada nos parâmetros da coleta. A consulta é só pelo nome, nunca por CPF: um resultado é possível coincidência, não identificação.',
+  },
+};
 
 /**
  * Valor de um campo da comparação de capturas. O back-end já devolve todo CPF descaracterizado;
@@ -83,6 +130,7 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
   const [recurso, setRecurso] = useState<RecursoPortalTransparencia>('ceis');
   const [alvoSancoes, setAlvoSancoes] = useState<'do_caso' | 'lista'>('do_caso');
   const [listaCnpjs, setListaCnpjs] = useState('');
+  const [listaNomes, setListaNomes] = useState('');
   const [tipoCodigoSiape, setTipoCodigoSiape] = useState<'lotacao' | 'exercicio'>('lotacao');
   const [codigoSiape, setCodigoSiape] = useState('');
   const [cnpjOrgaoContratante, setCnpjOrgaoContratante] = useState('');
@@ -102,6 +150,7 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
   }, [cliente, casoId]);
 
   const cnpjsLidos = lerCnpjs(listaCnpjs);
+  const nomesLidos = lerNomes(listaNomes);
 
   function montar(): ColetaRequisicao {
     switch (fonte) {
@@ -121,6 +170,8 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
           else parametros.orgaoServidorExercicio = codigoSiape.trim();
           parametros.cnpjOrgao = limparCnpj(cnpjOrgaoContratante);
         } else if (alvoSancoes === 'do_caso') parametros.do_caso = true;
+        // CEAF: só nomes. CPF nunca é enviado.
+        else if (recurso === 'ceaf') parametros.nomeSancionado = nomesLidos.nomes;
         else parametros.codigoSancionado = cnpjsLidos.cnpjs;
         return { fonte, parametros };
       }
@@ -168,7 +219,9 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
         return true;
       case 'portal_transparencia':
         if (recurso === 'servidores') return /^\d+$/.test(codigoSiape.trim()) && temFormaDeCnpj(cnpjOrgaoContratante);
-        return alvoSancoes === 'do_caso' || (cnpjsLidos.cnpjs.length > 0 && cnpjsLidos.cnpjs.length <= 100 && cnpjsLidos.invalidos.length === 0);
+        if (alvoSancoes === 'do_caso') return true;
+        if (recurso === 'ceaf') return nomesLidos.nomes.length > 0 && nomesLidos.nomes.length <= MAXIMO_NOMES && nomesLidos.invalidos.length === 0;
+        return cnpjsLidos.cnpjs.length > 0 && cnpjsLidos.cnpjs.length <= 100 && cnpjsLidos.invalidos.length === 0;
       case 'tse_arquivo':
         // `ano`: vazio ou quatro dígitos, a mesma regra do back-end (`^(\d{4})?$`).
         return diretorioTse.trim().length > 0 && /^([A-Za-z]{2})?$/.test(uf.trim()) && /^(\d{4})?$/.test(anoTse.trim());
@@ -240,6 +293,15 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
               <Radio nome="recurso" valor="cnep" marcado={recurso === 'cnep'} aoMarcar={() => setRecurso('cnep')}>
                 CNEP — empresas punidas (Lei 12.846/2013)
               </Radio>
+              <Radio nome="recurso" valor="cepim" marcado={recurso === 'cepim'} aoMarcar={() => setRecurso('cepim')}>
+                CEPIM — entidades sem fins lucrativos impedidas
+              </Radio>
+              <Radio nome="recurso" valor="ceaf" marcado={recurso === 'ceaf'} aoMarcar={() => setRecurso('ceaf')}>
+                CEAF — expulsões da administração federal (por nome)
+              </Radio>
+              <Radio nome="recurso" valor="convenios" marcado={recurso === 'convenios'} aoMarcar={() => setRecurso('convenios')}>
+                Convênios — por convenente
+              </Radio>
               <Radio nome="recurso" valor="servidores" marcado={recurso === 'servidores'} aoMarcar={() => setRecurso('servidores')}>
                 Servidores de um órgão
               </Radio>
@@ -251,25 +313,35 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
             {recurso !== 'servidores' ? (
               <>
                 <fieldset className="fieldset-linha">
-                  <legend>Empresas a consultar</legend>
+                  <legend>{recurso === 'ceaf' ? 'Pessoas a consultar (pelo nome)' : recurso === 'convenios' ? 'Convenentes a consultar' : 'Empresas a consultar'}</legend>
                   <Radio nome="alvo-sancoes" valor="do_caso" marcado={alvoSancoes === 'do_caso'} aoMarcar={() => setAlvoSancoes('do_caso')}>
-                    Contratadas do caso
+                    {ALVO_DO_CASO[recurso].rotulo}
                   </Radio>
                   <Radio nome="alvo-sancoes" valor="lista" marcado={alvoSancoes === 'lista'} aoMarcar={() => setAlvoSancoes('lista')}>
-                    Lista de CNPJs
+                    {recurso === 'ceaf' ? 'Lista de nomes' : 'Lista de CNPJs'}
                   </Radio>
                 </fieldset>
                 {alvoSancoes === 'do_caso' ? (
-                  <p className="mudo">
-                    Serão consultadas todas as empresas contratadas do caso; a lista explícita de CNPJs fica gravada nos
-                    parâmetros da coleta.
+                  <p className="mudo" data-testid="alvo-do-caso">
+                    {ALVO_DO_CASO[recurso].explicacao}
                   </p>
+                ) : recurso === 'ceaf' ? (
+                  <Campo
+                    rotulo="Nomes a consultar"
+                    tipo="textarea"
+                    dica={`Até ${MAXIMO_NOMES} nomes completos, um por linha (ou separados por ponto e vírgula). Só nomes: o CEAF nunca é consultado por CPF, e item com dígitos é recusado.`}
+                  >
+                    <textarea value={listaNomes} onChange={(e) => setListaNomes(e.target.value)} rows={3} placeholder="NOME COMPLETO" required />
+                  </Campo>
                 ) : (
                   <Campo rotulo="CNPJs a consultar" tipo="textarea" dica="Até 100 CNPJs de 14 dígitos, separados por vírgula, espaço ou quebra de linha. Sanção de pessoa física (CPF) não é consultada.">
                     <textarea value={listaCnpjs} onChange={(e) => setListaCnpjs(e.target.value)} rows={3} placeholder="90000006000151, 90000007000104" required />
                   </Campo>
                 )}
-                {alvoSancoes === 'lista' && cnpjsLidos.invalidos.length > 0 && (
+                {alvoSancoes === 'lista' && recurso === 'ceaf' && nomesLidos.invalidos.length > 0 && (
+                  <Mensagem tipo="aviso">Não é nome (tem dígitos ou não tem letras; CPF não é aceito): {mascararCpfs(nomesLidos.invalidos.join('; '), { contextoCpf: true })}</Mensagem>
+                )}
+                {alvoSancoes === 'lista' && recurso !== 'ceaf' && cnpjsLidos.invalidos.length > 0 && (
                   <Mensagem tipo="aviso">Não é CNPJ válido (14 posições, com os dígitos verificadores corretos): {cnpjsLidos.invalidos.join(', ')}</Mensagem>
                 )}
               </>
