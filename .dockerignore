@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+.git
+.gitignore
+# Nenhum arquivo de ambiente entra no contexto de build: o Vite gravaria os
+# valores VITE_* dentro de dist/. Só o exemplo, que não tem segredo, fica.
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+PROGRESSO.md
+README.md
+Dockerfile
+.dockerignore
