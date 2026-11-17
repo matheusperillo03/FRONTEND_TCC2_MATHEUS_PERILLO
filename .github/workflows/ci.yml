@@ -1,0 +1,58 @@
+# Pipeline de integração do front-end (RNF11, H16).
+#
+# Barreira para código gerado por IA: nada entra sem lint, testes, build e auditoria das
+# dependências. Cada etapa é um comando que termina com código diferente de zero quando falha,
+# e não há `continue-on-error` nem `|| true`: se qualquer etapa falha, o job falha e o pipeline
+# também.
+#
+# Equivalente local:
+#   npm ci
+#   npm run lint
+#   npm test -- --run
+#   npm run build
+#   npm audit --audit-level=high
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: Lint, testes, build e auditoria de dependências
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar o Node (mesma versão principal da imagem Docker)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar as dependências (versões travadas no package-lock.json)
+        run: npm ci
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Testes (vitest)
+        run: npm test -- --run
+
+      - name: Build (tsc e vite, sem o modo simulado)
+        run: npm run build
+
+      - name: Conferir que o modo simulado não entrou no build
+        run: |
+          ! grep -rIlE "dev-(delegado|agente|analista|admin)" dist
+
+      - name: Auditoria das dependências (falha com vulnerabilidade alta ou crítica)
+        run: npm audit --audit-level=high
