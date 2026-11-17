@@ -89,17 +89,25 @@ export interface ParametrosPncp {
   max_paginas: number;
 }
 
-export type RecursoPortalTransparencia = 'ceis' | 'cnep' | 'servidores';
+/** `cepim`, `ceaf` e `convenios` vieram com as tipologias de lavagem (L10 e L16). */
+export type RecursoPortalTransparencia = 'ceis' | 'cnep' | 'servidores' | 'cepim' | 'ceaf' | 'convenios';
 
 /**
  * Portal da Transparência (H19). CEIS e CNEP: `codigoSancionado` (CNPJ ou
  * lista de até 100) ou `do_caso: true` (as contratadas do caso). Servidores:
  * código SIAPE do órgão (lotação ou exercício) e `cnpjOrgao`, o órgão
  * contratante do caso a que o código corresponde, declarado pelo investigador.
+ *
+ * CEPIM e convênios: `codigoSancionado` (CNPJ da entidade ou do convenente) ou
+ * `do_caso: true`. CEAF (expulsões da administração federal): `nomeSancionado`
+ * (lista de nomes completos) ou `do_caso: true` (os nomes dos sócios pessoa
+ * física das contratadas e convenentes). O CEAF nunca é consultado por CPF.
  */
 export interface ParametrosPortalTransparencia {
   recurso: RecursoPortalTransparencia;
   codigoSancionado?: string[];
+  /** Só no CEAF: nomes completos. Nunca CPF. */
+  nomeSancionado?: string[];
   do_caso?: boolean;
   orgaoServidorLotacao?: string;
   orgaoServidorExercicio?: string;
@@ -250,7 +258,7 @@ export interface RecoletaResultado extends ColetaResultado {
   comparacao: ComparacaoColeta;
 }
 
-export type TipoEntidade = 'empresa' | 'pessoa' | 'orgao' | 'contrato' | 'sancao' | 'candidato' | 'edital';
+export type TipoEntidade = 'empresa' | 'pessoa' | 'orgao' | 'contrato' | 'sancao' | 'candidato' | 'edital' | 'convenio';
 
 export interface EntidadeResumo {
   id: Id;
@@ -302,7 +310,10 @@ export type TipoAresta =
   | 'sancionada_em'
   | 'servidor_de'
   | 'doou_para'
-  | 'edital_de';
+  | 'edital_de'
+  // Tipologias de lavagem (L16): empresa → convênio e órgão → convênio.
+  | 'convenente_de'
+  | 'concedente_de';
 
 export interface ArestaGrafo {
   origem: Id;
@@ -317,9 +328,38 @@ export interface Grafo {
   arestas: ArestaGrafo[];
 }
 
-export type Tipologia = 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7' | 'T8' | 'T9' | 'T10';
+/** T: contratações (possível infração antecedente). */
+export type TipologiaContratacao = 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7' | 'T8' | 'T9' | 'T10';
+/** L: lavagem e ocultação. Não existem L2, L9, L11, L12 e L13. */
+export type TipologiaLavagem = 'L1' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8' | 'L10' | 'L14' | 'L15' | 'L16';
+/** COMB: combinação de alertas na mesma entidade. */
+export type Tipologia = TipologiaContratacao | TipologiaLavagem | 'COMB';
 
-export const TIPOLOGIAS: readonly Tipologia[] = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10'];
+export const TIPOLOGIAS_CONTRATACAO: readonly TipologiaContratacao[] = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10'];
+export const TIPOLOGIAS_LAVAGEM: readonly TipologiaLavagem[] = ['L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16'];
+
+/** Na ordem do catálogo e da execução do back-end: T1 a T10, as L e, por fim, a combinação. */
+export const TIPOLOGIAS: readonly Tipologia[] = [...TIPOLOGIAS_CONTRATACAO, ...TIPOLOGIAS_LAVAGEM, 'COMB'];
+
+export type GrupoTipologia = 'contratacao' | 'lavagem' | 'combinacao';
+
+export const GRUPOS_TIPOLOGIA: readonly GrupoTipologia[] = ['contratacao', 'lavagem', 'combinacao'];
+
+export const ROTULOS_GRUPO_TIPOLOGIA: Record<GrupoTipologia, string> = {
+  contratacao: 'Contratações',
+  lavagem: 'Lavagem e ocultação',
+  combinacao: 'Combinação',
+};
+
+/**
+ * Grupo de uma tipologia: o que o back-end mandar ou, em respostas antigas (sem
+ * o campo), o que o código diz (T, L ou COMB).
+ */
+export function grupoDaTipologia(codigo: string, grupoDoServidor?: string | null): GrupoTipologia {
+  if (grupoDoServidor === 'contratacao' || grupoDoServidor === 'lavagem' || grupoDoServidor === 'combinacao') return grupoDoServidor;
+  if (codigo === 'COMB') return 'combinacao';
+  return codigo.startsWith('L') ? 'lavagem' : 'contratacao';
+}
 
 /** Limiares que podem ser sobrescritos numa execução (`POST .../alertas/executar`). */
 export interface ParametrosTipologias {
@@ -332,6 +372,37 @@ export interface ParametrosTipologias {
   t8_percentual_limite?: number;
   /** Percentual maior que 0, até 1000. */
   t8_percentual_limite_reforma?: number;
+  // Tipologias de lavagem e combinação: todos opcionais e numéricos.
+  /** Inteiro ≥ 2. */
+  l1_minimo_estabelecimentos?: number;
+  /** Inteiro ≥ 1. */
+  l1_janela_abertura_dias?: number;
+  /** Inteiro ≥ 2. */
+  l1_minimo_abertas_na_janela?: number;
+  /** Inteiro ≥ 2. */
+  l3_minimo_empresas?: number;
+  /** Inteiro ≥ 1. */
+  l3_minimo_abertas_na_janela?: number;
+  /** Inteiro ≥ 1. */
+  l3_janela_meses?: number;
+  /** Inteiro ≥ 2. */
+  l4_minimo_niveis?: number;
+  /** Inteiro ≥ 0. */
+  l7_dias_apos_abertura?: number;
+  /** Inteiro ≥ 1. */
+  l7_meses_antes_contrato?: number;
+  /** Número ≥ 0 (reais). */
+  l14_valor_minimo?: number;
+  /** Inteiro ≥ 2. */
+  l15_minimo_cnaes?: number;
+  /** Inteiro ≥ 2. */
+  l15_minimo_categorias?: number;
+  /** Inteiro ≥ 0. */
+  l16_dias_minimos?: number;
+  /** Inteiro ≥ 2. */
+  comb_minimo_tipologias?: number;
+  /** Número maior que 0. */
+  comb_peso_minimo?: number;
 }
 
 /** Corpo de `POST /casos/{id}/alertas/executar`. Sem `tipologias`, roda todas. */
@@ -361,6 +432,32 @@ export interface TipologiaCatalogo {
   base: string;
   fontes: string[];
   parametros: ParametroTipologia[];
+  /** Ausente em respostas antigas: a interface deduz do código (`grupoDaTipologia`). */
+  grupo?: GrupoTipologia;
+  /** Verdadeiro: o alerta é só insumo da combinação; sozinho não indica nada. */
+  sinal_fraco?: boolean;
+  /** Quanto um alerta desta tipologia pesa no alerta de combinação (0 = não conta). */
+  peso?: number;
+}
+
+/** Limite de receita de um regime ou porte (`l6_limites`), com a fonte. */
+export interface LimiteReceita {
+  anual: number;
+  /** Só no MEI: limite por mês no ano de início da atividade. */
+  mensal_inicio?: number;
+  fonte?: string;
+}
+
+/**
+ * `l6_limites`: limite do MEI por ano-calendário e limites da ME e da EPP.
+ * `mei_ate` e `mei_a_partir` dizem que ano vale antes do primeiro e depois do último da tabela.
+ */
+export interface LimitesL6 {
+  mei?: Record<string, LimiteReceita>;
+  me?: LimiteReceita;
+  epp?: LimiteReceita;
+  mei_ate?: string;
+  mei_a_partir?: string;
 }
 
 /** Uma linha de `t5_limites_dispensa`: limites do art. 75, I e II, num exercício, com a fonte. */
@@ -424,6 +521,39 @@ export interface Alerta {
   decisoes?: DecisaoAlerta[];
   /** Falso: a última execução da tipologia não detectou mais o alerta (mantido pela decisão). */
   ativo?: boolean;
+  /** Tipologias de lavagem e combinação: ausentes em respostas antigas. */
+  grupo?: GrupoTipologia;
+  /** Verdadeiro: sinal fraco, que só pesa no alerta de combinação. */
+  sinal_fraco?: boolean;
+  peso?: number;
+}
+
+/** Um alerta que entra (ou não) num alerta de combinação (`parametros.componentes` do COMB). */
+export interface ComponenteCombinacao {
+  alerta_id: Id;
+  tipologia: string;
+  tipologia_nome?: string;
+  titulo: string;
+  severidade?: string;
+  situacao?: SituacaoAlerta | string;
+  peso: number;
+  sinal_fraco?: boolean;
+  /** Falso: o alerta aparece na lista, mas não soma (a `observacao` diz por quê). */
+  conta: boolean;
+  observacao?: string;
+}
+
+/** `parametros` de um alerta `COMB`. Não é escore de culpa: é pista para priorizar a análise (RF12). */
+export interface ParametrosCombinacao {
+  entidade_id?: Id;
+  entidade_rotulo?: string;
+  entidade_tipo?: string;
+  tipologias_distintas?: number;
+  soma_pesos?: number;
+  comb_minimo_tipologias?: number;
+  comb_peso_minimo?: number;
+  componentes?: ComponenteCombinacao[];
+  aviso?: string;
 }
 
 export interface Captura {
@@ -868,7 +998,7 @@ export interface ApiCliente {
   verificarAuditoria(): Promise<VerificacaoAuditoria>;
   /** Devolve o corpo bruto (texto JSON ou Markdown) para download. */
   obterRelatorio(casoId: Id, formato: FormatoRelatorio): Promise<string>;
-  /** Catálogo das tipologias (T1 a T10). Não é dado de caso: exige só o token. */
+  /** Catálogo das tipologias (T1 a T10, as L e a combinação). Não é dado de caso: exige só o token. */
   listarTipologias(): Promise<TipologiaCatalogo[]>;
   listarMonitoramentos(casoId: Id): Promise<Monitoramento[]>;
   /** Marca uma entidade do caso para acompanhamento; marcar de novo reativa e atualiza a periodicidade. */

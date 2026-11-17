@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ClienteMock } from './clienteMock';
 import { ErroApi, ErroJustificativa } from './erros';
+import type { ParametrosCombinacao, ParametrosTipologias } from './tipos';
 
 function criar(token = 'dev-analista', justificativa = 'teste') {
   return new ClienteMock({ obterToken: () => token, obterJustificativa: () => justificativa, latenciaMs: 0 });
@@ -50,12 +51,12 @@ describe('ClienteMock — mesmas regras do back-end', () => {
     expect(caminho.arestas.length).toBe(caminho.nos.length - 1);
   });
 
-  it('executa tipologias e devolve T1 a T10 por severidade, com evidências e hash', async () => {
+  it('executa tipologias e devolve T1 a T10, as L e a combinação por severidade, com evidências e hash', async () => {
     const c = criar();
     const alertas = await c.executarAlertas('caso-1');
-    // Severidade primeiro; dentro dela, o código como texto (T10 antes de T2), como no back-end.
-    expect(alertas.map((a) => a.tipologia)).toEqual(['T4', 'T6', 'T7', 'T1', 'T3', 'T5', 'T8', 'T9', 'T9', 'T10', 'T2']);
-    expect(alertas.map((a) => a.severidade)).toEqual(['alta', 'alta', 'alta', 'media', 'media', 'media', 'media', 'media', 'media', 'baixa', 'baixa']);
+    // Severidade primeiro; dentro dela, o código como texto (COMB e L antes de T; T10 antes de T2), como no back-end.
+    expect(alertas.map((a) => a.tipologia)).toEqual(['COMB', 'COMB', 'T4', 'T6', 'T7', 'L6', 'T1', 'T3', 'T5', 'T8', 'T9', 'T9', 'L14', 'T10', 'T2']);
+    expect(alertas.map((a) => a.severidade)).toEqual([...Array(5).fill('alta'), ...Array(7).fill('media'), ...Array(3).fill('baixa')]);
     expect(alertas.every((a) => a.politica_erro?.startsWith('Prefere evitar falso') && a.situacao === 'pendente')).toBe(true);
     for (const a of alertas) for (const ev of a.evidencias) expect(ev.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -185,10 +186,14 @@ describe('ClienteMock — horizonte 2 do backlog', () => {
     await expect(c.executarAlertas('caso-1', { parametros: { t8_percentual_limite_reforma: 1001 } })).rejects.toMatchObject({ status: 422 });
   });
 
-  it('GET /tipologias: catálogo T1 a T10 só com o token, sem justificativa e sem entrada na auditoria', async () => {
+  it('GET /tipologias: catálogo (T1 a T10, as L e COMB) só com o token, sem justificativa e sem entrada na auditoria', async () => {
     const c = criar('dev-delegado', '');
     const catalogo = await c.listarTipologias();
-    expect(catalogo.map((t) => t.codigo)).toEqual(['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10']);
+    expect(catalogo.map((t) => t.codigo)).toEqual([
+      'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10',
+      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16',
+      'COMB',
+    ]);
     const t5 = catalogo.find((t) => t.codigo === 'T5')!;
     expect(t5.parametros.map((p) => [p.nome, p.por_execucao])).toEqual([
       ['t5_minimo_contratacoes', true],
@@ -230,7 +235,8 @@ describe('ClienteMock — horizonte 2 do backlog', () => {
     const tipos = new Set((await c.buscarEntidades(caso.id, '')).map((e) => e.tipo));
     expect(tipos).toEqual(new Set(['empresa', 'pessoa', 'orgao', 'contrato', 'sancao', 'candidato', 'edital']));
     const alertas = await c.executarAlertas(caso.id);
-    expect(new Set(alertas.map((a) => a.tipologia)).size).toBe(10);
+    // T1 a T10, mais L6, L14 e a combinação.
+    expect(new Set(alertas.map((a) => a.tipologia)).size).toBe(13);
   });
 
   it('fonte não configurada: responde sem erro, sem capturas, com o motivo, e não impede as outras fontes', async () => {
@@ -327,5 +333,143 @@ describe('ClienteMock — horizonte 2 do backlog', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', () => {
+  it('catálogo: cada item traz o grupo, a marca de sinal fraco e o peso; os parâmetros estruturados novos vêm com a fonte', async () => {
+    const catalogo = await criar().listarTipologias();
+    expect(new Set(catalogo.filter((t) => t.codigo.startsWith('T')).map((t) => t.grupo))).toEqual(new Set(['contratacao']));
+    expect(new Set(catalogo.filter((t) => t.codigo.startsWith('L')).map((t) => t.grupo))).toEqual(new Set(['lavagem']));
+    expect(catalogo.find((t) => t.codigo === 'COMB')).toMatchObject({ grupo: 'combinacao', severidade: 'alta', sinal_fraco: false, peso: 0 });
+    expect(catalogo.filter((t) => t.sinal_fraco).map((t) => [t.codigo, t.peso])).toEqual([['L14', 0.5], ['L15', 0.5]]);
+    expect(catalogo.find((t) => t.codigo === 'L8')).toMatchObject({ severidade: 'alta', peso: 0 });
+    expect(Object.fromEntries(catalogo.filter((t) => t.codigo.startsWith('L')).map((t) => [t.codigo, t.severidade]))).toEqual({
+      L1: 'baixa', L3: 'media', L4: 'media', L5: 'baixa', L6: 'media', L7: 'media', L8: 'alta', L10: 'media', L14: 'baixa', L15: 'baixa', L16: 'media',
+    });
+    const l6 = catalogo.find((t) => t.codigo === 'L6')!;
+    const limites = l6.parametros.find((p) => p.nome === 'l6_limites')!;
+    expect(limites.por_execucao).toBe(false);
+    expect(limites.valor).toMatchObject({ mei: { '2026': { anual: 81000, mensal_inicio: 6750 }, '2027': { anual: 110000 }, '2028': { anual: 140000 } }, me: { anual: 360000 }, epp: { anual: 4800000 }, mei_ate: '2026', mei_a_partir: '2028' });
+    const comb = catalogo.find((t) => t.codigo === 'COMB')!;
+    expect(comb.parametros.map((p) => [p.nome, p.por_execucao])).toEqual([['comb_minimo_tipologias', true], ['comb_peso_minimo', true], ['comb_pesos', false]]);
+    expect(comb.parametros[2].valor).toMatchObject({ T1: 1, L8: 0, L14: 0.5, COMB: 0 });
+  });
+
+  it('RF12: há um alerta L normal e um sinal fraco, explicados como os T (motivo, evidências com hash e política de erro)', async () => {
+    const alertas = await criar().executarAlertas('caso-1');
+    const l6 = alertas.find((a) => a.tipologia === 'L6')!;
+    expect(l6).toMatchObject({ grupo: 'lavagem', sinal_fraco: false, peso: 1, severidade: 'media', situacao: 'pendente' });
+    const l14 = alertas.find((a) => a.tipologia === 'L14')!;
+    expect(l14).toMatchObject({ grupo: 'lavagem', sinal_fraco: true, peso: 0.5, severidade: 'baixa' });
+    for (const a of [l6, l14]) {
+      expect(a.motivo.length).toBeGreaterThan(50);
+      expect(a.politica_erro).toMatch(/^Prefere evitar falso/);
+      expect(a.evidencias.length).toBeGreaterThan(0);
+      for (const ev of a.evidencias) expect(ev.sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
+    // A idade é dado pessoal: o alerta só fala em faixa etária.
+    expect(JSON.stringify(l14)).not.toMatch(/data_nascimento|\bidade\b\s*:/);
+    expect(alertas.filter((a) => a.tipologia.startsWith('T')).every((a) => a.grupo === 'contratacao' && a.sinal_fraco === false && a.peso === 1)).toBe(true);
+  });
+
+  it('RF14: o alerta de combinação é coerente com os componentes (pesos, soma, tipologias distintas e mínimos)', async () => {
+    const alertas = await criar().executarAlertas('caso-1');
+    const combinacoes = alertas.filter((a) => a.tipologia === 'COMB');
+    expect(combinacoes.map((a) => a.entidades)).toEqual([['emp-1'], ['emp-6']]);
+    for (const comb of combinacoes) {
+      const p = comb.parametros as ParametrosCombinacao;
+      const componentes = p.componentes!;
+      // Cada componente aponta para um alerta que existe, da mesma entidade, com o mesmo título e peso.
+      for (const c of componentes) {
+        const alvo = alertas.find((a) => a.id === c.alerta_id)!;
+        expect(alvo).toMatchObject({ tipologia: c.tipologia, titulo: c.titulo, peso: c.peso, sinal_fraco: c.sinal_fraco });
+        expect(alvo.entidades[0]).toBe(p.entidade_id);
+      }
+      const contam = componentes.filter((c) => c.conta);
+      expect(p.soma_pesos).toBe(contam.reduce((s, c) => s + c.peso, 0));
+      expect(p.tipologias_distintas).toBe(new Set(contam.map((c) => c.tipologia)).size);
+      expect(p.soma_pesos!).toBeGreaterThanOrEqual(p.comb_peso_minimo!);
+      expect(p.tipologias_distintas!).toBeGreaterThanOrEqual(p.comb_minimo_tipologias!);
+      expect(p.aviso).toMatch(/^Não é escore de culpa/);
+      expect(comb).toMatchObject({ grupo: 'combinacao', severidade: 'alta', peso: 0, sinal_fraco: false });
+      expect(comb.evidencias.length).toBeGreaterThan(0);
+    }
+    const alfa = combinacoes[0].parametros as ParametrosCombinacao;
+    expect(alfa).toMatchObject({ entidade_rotulo: 'ALFA SOLUÇÕES EM TI LTDA', entidade_tipo: 'empresa', tipologias_distintas: 5, soma_pesos: 4.5, comb_minimo_tipologias: 2, comb_peso_minimo: 2 });
+    expect(alfa.componentes!.map((c) => c.tipologia).sort()).toEqual(['L14', 'L6', 'T1', 'T2', 'T3']);
+  });
+
+  it('RF12 e RF14: alerta descartado sai da combinação na execução seguinte; a decisão sobre a combinação é mantida', async () => {
+    const c = criar();
+    const antes = await c.executarAlertas('caso-1');
+    const zeta = antes.find((a) => a.id === 'alr-comb-emp-6')!;
+    expect((zeta.parametros as ParametrosCombinacao).componentes!.map((x) => x.tipologia).sort()).toEqual(['T6', 'T8']);
+    await c.decidirAlerta('caso-1', 'alr-comb-emp-1', { decisao: 'confirmado', justificativa: 'Sinais conferidos nos documentos' });
+    await c.decidirAlerta('caso-1', 'alr-8', { decisao: 'descartado', justificativa: 'Aditivo de reequilíbrio, fora do art. 125' });
+
+    const depois = await c.executarAlertas('caso-1');
+    // Sem a T8, a ZETA fica com uma tipologia só: a combinação dela deixa de existir.
+    expect(depois.filter((a) => a.tipologia === 'COMB').map((a) => a.id)).toEqual(['alr-comb-emp-1']);
+    expect(depois.find((a) => a.id === 'alr-comb-emp-1')).toMatchObject({ situacao: 'confirmado' });
+    expect(depois.find((a) => a.id === 'alr-8')).toMatchObject({ situacao: 'descartado' });
+  });
+
+  it('RF14: limiares por execução da combinação e da L14; sem COMB na seleção, a combinação anterior fica como estava', async () => {
+    const c = criar();
+    const comMinimos = await c.executarAlertas('caso-1', { parametros: { comb_minimo_tipologias: 3, comb_peso_minimo: 4.5 } });
+    expect(comMinimos.filter((a) => a.tipologia === 'COMB').map((a) => a.id)).toEqual(['alr-comb-emp-1']);
+    expect(comMinimos[0].parametros).toMatchObject({ comb_minimo_tipologias: 3, comb_peso_minimo: 4.5 });
+    expect((await c.executarAlertas('caso-1', { parametros: { comb_peso_minimo: 5 } })).some((a) => a.tipologia === 'COMB')).toBe(false);
+
+    // Valor mínimo da L14 acima do contratado: o sinal fraco some e a soma da ALFA cai para 4.
+    const semL14 = await c.executarAlertas('caso-1', { parametros: { l14_valor_minimo: 5_000_000 } });
+    expect(semL14.some((a) => a.tipologia === 'L14')).toBe(false);
+    expect(semL14.find((a) => a.id === 'alr-comb-emp-1')!.parametros).toMatchObject({ soma_pesos: 4, tipologias_distintas: 4 });
+
+    const soL = await c.executarAlertas('caso-1', { tipologias: ['L6', 'L14'] });
+    expect(soL.find((a) => a.id === 'alr-comb-emp-1')!.parametros).toMatchObject({ soma_pesos: 4 });
+    expect(soL.some((a) => a.tipologia === 'L14')).toBe(true);
+  });
+
+  it('valida as faixas dos limiares novos (422), como o contrato', async () => {
+    const c = criar();
+    const invalidos: ParametrosTipologias[] = [
+      { l1_minimo_estabelecimentos: 1 },
+      { l1_janela_abertura_dias: 0 },
+      { l3_janela_meses: 1.5 },
+      { l4_minimo_niveis: 1 },
+      { l7_dias_apos_abertura: -1 },
+      { l14_valor_minimo: -0.01 },
+      { l15_minimo_cnaes: 1 },
+      { l16_dias_minimos: -1 },
+      { comb_minimo_tipologias: 1 },
+      { comb_peso_minimo: 0 },
+    ];
+    for (const parametros of invalidos) await expect(c.executarAlertas('caso-1', { parametros })).rejects.toMatchObject({ status: 422 });
+    await expect(c.executarAlertas('caso-1', { tipologias: ['L2' as never] })).rejects.toMatchObject({ status: 422 });
+    await expect(c.executarAlertas('caso-1', { parametros: { l7_dias_apos_abertura: 0, l14_valor_minimo: 0, l16_dias_minimos: 0, comb_peso_minimo: 0.5 } })).resolves.toBeInstanceOf(Array);
+  });
+
+  it('RF01 e RNF04: coleta de CEPIM, convênios e CEAF; no CEAF, "do caso" vira a lista de nomes dos sócios e CPF é recusado', async () => {
+    const c = criar();
+    const cepim = await c.iniciarColeta('caso-1', { fonte: 'portal_transparencia', parametros: { recurso: 'cepim', do_caso: true } });
+    expect(cepim).toMatchObject({ situacao: 'sucesso', captura_ids: [], entidades_novas: 0 });
+    expect(cepim.avisos?.[0]).toMatch(/não tem carga sintética/);
+    expect((await c.listarColetas('caso-1'))[0].parametros).toMatchObject({ recurso: 'cepim', codigoSancionado: expect.arrayContaining(['90000006000151']) });
+
+    await c.iniciarColeta('caso-1', { fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', do_caso: true } });
+    const ceaf = (await c.listarColetas('caso-1'))[0].parametros;
+    expect(ceaf.do_caso).toBeUndefined();
+    expect(ceaf.nomeSancionado).toEqual(expect.arrayContaining(['JOÃO EXEMPLO DA SILVA']));
+    // Só nomes: nada com cara de CPF, nem descaracterizado, vai nos parâmetros do CEAF.
+    expect(JSON.stringify(ceaf)).not.toMatch(/\d{6}|codigoSancionado/);
+
+    await expect(c.iniciarColeta('caso-1', { fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', nomeSancionado: ['***123456**'] } })).rejects.toMatchObject({ status: 422 });
+    await expect(c.iniciarColeta('caso-1', { fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', nomeSancionado: [] } })).rejects.toMatchObject({ status: 422 });
+    await expect(c.iniciarColeta('caso-1', { fonte: 'portal_transparencia', parametros: { recurso: 'ceaf', nomeSancionado: ['FULANO FICTICIO DE TAL'] } })).resolves.toMatchObject({ situacao: 'sucesso' });
+    await expect(c.iniciarColeta('caso-1', { fonte: 'portal_transparencia', parametros: { recurso: 'convenios', codigoSancionado: ['90000007000104'] } })).resolves.toMatchObject({ situacao: 'sucesso' });
+    // O caso de demonstração não tem entidade sem fins lucrativos.
+    await expect(c.iniciarColeta('caso-1', { fonte: 'portal_transparencia', parametros: { recurso: 'convenios', do_caso: true } })).rejects.toMatchObject({ status: 422 });
   });
 });

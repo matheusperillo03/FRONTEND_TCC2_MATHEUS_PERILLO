@@ -1,7 +1,9 @@
 import { useId, useState, type FormEvent } from 'react';
 import {
+  grupoDaTipologia,
   mensagemDeErro,
   type Alerta,
+  type ComponenteCombinacao,
   type DecisaoAlerta,
   type DecisaoAlertaValor,
   type Evidencia,
@@ -26,7 +28,42 @@ const NOMES_TIPOLOGIA: Record<string, string> = {
   T8: 'Aditivos acima do limite legal',
   T9: 'Doador de campanha contratado pelo ente do candidato eleito',
   T10: 'Cláusula potencialmente restritiva em edital',
+  L1: 'Endereço de registro em massa',
+  L3: 'Mesmo administrador ou representante em muitas empresas',
+  L4: 'Cadeia societária em camadas',
+  L5: 'Sócio estrangeiro (nível 1)',
+  L6: 'Porte ou regime incompatível com o valor contratado',
+  L7: 'Fundadores substituídos logo após a abertura',
+  L8: 'Empresa recém-aberta com sócio que possivelmente é agente público',
+  L10: 'Vínculo com empresa sancionada ou com pessoa expulsa da administração',
+  L14: 'Sócio em faixa etária atípica em empresa contratada',
+  L15: 'Número excessivo de atividades econômicas',
+  L16: 'Entidade sem fins lucrativos convenente com sinais de fachada',
+  COMB: 'Combinação de alertas na mesma entidade',
 };
+
+/** Texto fixo dos sinais fracos (contrato da API): vale no cartão, na lista e no catálogo. */
+export const TEXTO_SINAL_FRACO = 'Sinal fraco: sozinho não indica nada; só pesa no alerta de combinação.';
+
+/** Aviso do alerta de combinação quando o back-end não manda `parametros.aviso`. */
+export const AVISO_COMBINACAO = 'Não é escore de culpa: é uma pista para priorizar a análise (RF12).';
+
+/** Âncora do cartão de um alerta: é para onde os componentes de uma combinação levam. */
+export function idCartaoAlerta(alertaId: Id): string {
+  return `cartao-alerta-${String(alertaId)}`;
+}
+
+/** Peso na combinação, com vírgula decimal (0,5; 1; 2,5). */
+export function formatarPeso(peso: unknown): string {
+  return typeof peso === 'number' && Number.isFinite(peso) ? peso.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—';
+}
+
+/** Componentes do alerta de combinação (`parametros.componentes`), só os que têm o formato esperado. */
+function lerComponentes(parametros: Record<string, unknown>): ComponenteCombinacao[] {
+  const bruto = parametros?.componentes;
+  if (!Array.isArray(bruto)) return [];
+  return bruto.filter((c): c is ComponenteCombinacao => !!c && typeof c === 'object' && typeof (c as ComponenteCombinacao).tipologia === 'string');
+}
 
 /** Texto do selo das tipologias que cruzam pessoas por CPF descaracterizado e nome (T7 e T9). */
 export const SELO_COINCIDENCIA = 'Possível coincidência (não é identificação)';
@@ -72,13 +109,27 @@ export interface CartaoAlertaProps {
   aoDecidir?: (alertaId: Id, decisao: DecisaoAlertaValor, justificativa: string) => Promise<unknown>;
   /** Caso do alerta. Com ele, o cartão mostra as anotações da equipe (H37), carregadas quando o usuário pede. */
   casoId?: Id;
+  /**
+   * Leva ao cartão de um alerta componente da combinação. Sem esta função, o
+   * cartão procura a âncora do componente na página e rola até ela.
+   */
+  aoIrParaAlerta?: (alertaId: Id) => void;
+}
+
+/** Rola até o cartão do alerta e põe o foco nele; devolve falso se o cartão não está na página. */
+export function irParaCartaoAlerta(alertaId: Id): boolean {
+  const cartao = document.getElementById(idCartaoAlerta(alertaId));
+  if (!cartao) return false;
+  cartao.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  cartao.focus({ preventScroll: true });
+  return true;
 }
 
 /**
  * Alerta de tipologia com motivo, parâmetros e evidências (RNF05), severidade
  * e política de erro da tipologia (RF14) e a decisão do investigador (RF12).
  */
-export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, aoDecidir, casoId }: CartaoAlertaProps) {
+export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, aoDecidir, casoId, aoIrParaAlerta }: CartaoAlertaProps) {
   const sev = (alerta.severidade ?? '').toLowerCase();
   const situacao: SituacaoAlerta = alerta.situacao ?? 'pendente';
   const parametros = alerta.parametros ?? {};
@@ -86,13 +137,29 @@ export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, a
   const possivelCoincidencia = parametros.identidade_confirmada === false;
   const ocorrencias = lerOcorrencias(parametros);
   const totalOcorrencias = typeof parametros.ocorrencias_total === 'number' ? parametros.ocorrencias_total : ocorrencias.length;
-  // As ocorrências têm seção própria; na tabela de parâmetros virariam um JSON ilegível.
-  const parametrosDaTabela = ocorrencias.length ? Object.fromEntries(Object.entries(parametros).filter(([chave]) => chave !== 'ocorrencias')) : parametros;
+  const grupo = grupoDaTipologia(alerta.tipologia, alerta.grupo);
+  const ehCombinacao = grupo === 'combinacao';
+  const sinalFraco = alerta.sinal_fraco === true;
+  // Nas tipologias de lavagem e na combinação, o aviso de que o alerta é pista vem no alto do cartão (RF12).
+  const avisoDePista = grupo !== 'contratacao';
+  // As ocorrências e os componentes têm seção própria; na tabela de parâmetros virariam um JSON ilegível.
+  const FORA_DA_TABELA = ['ocorrencias', ...(ehCombinacao ? ['componentes', 'aviso'] : [])];
+  const parametrosDaTabela = Object.fromEntries(Object.entries(parametros).filter(([chave]) => !FORA_DA_TABELA.includes(chave)));
   return (
-    <article className={`br-card alerta alerta-${situacao}`} aria-labelledby={`alerta-${alerta.id}-titulo`}>
+    <article
+      id={idCartaoAlerta(alerta.id)}
+      tabIndex={-1}
+      className={`br-card alerta alerta-${situacao}${ehCombinacao ? ' alerta-combinacao' : ''}${sinalFraco ? ' alerta-sinal-fraco' : ''}`}
+      aria-labelledby={`alerta-${alerta.id}-titulo`}
+    >
       <header className="alerta-cabecalho">
         <span className="br-tag small etiqueta-tipologia">{alerta.tipologia}</span>
         <h3 id={`alerta-${alerta.id}-titulo`}>{mascararCpfs(alerta.titulo)}</h3>
+        {sinalFraco && (
+          <span className="br-tag small etiqueta-sinal-fraco" data-testid="selo-sinal-fraco">
+            sinal fraco
+          </span>
+        )}
         {possivelCoincidencia && (
           <span className="br-tag small etiqueta-coincidencia" data-testid="selo-coincidencia">
             {SELO_COINCIDENCIA}
@@ -101,7 +168,22 @@ export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, a
         <span className={`br-tag small situacao situacao-${situacao}`}>{ROTULOS_SITUACAO[situacao]}</span>
         <span className={`br-tag small severidade severidade-${sev}`}>severidade: {rotuloSeveridade(alerta.severidade)}</span>
       </header>
-      <p className="alerta-tipologia mudo">{nomeTipologia(alerta.tipologia, alerta.tipologia_nome)}</p>
+      <p className="alerta-tipologia mudo">
+        <span>{nomeTipologia(alerta.tipologia, alerta.tipologia_nome)}</span>
+        {!ehCombinacao && typeof alerta.peso === 'number' && <span data-testid="peso-alerta"> · peso na combinação: {formatarPeso(alerta.peso)}</span>}
+      </p>
+      {avisoDePista && (
+        <div data-testid="aviso-pista">
+          <Mensagem tipo="aviso">
+            <strong>Pista, não conclusão.</strong>{' '}
+            {ehCombinacao
+              ? 'A combinação só diz que vários sinais recaem sobre a mesma entidade; não mede culpa nem prova lavagem de dinheiro.'
+              : 'Este sinal de possível ocultação não prova lavagem de dinheiro: tem explicações legítimas e precisa ser conferido.'}{' '}
+            Confirme ou descarte, com justificativa.
+            {sinalFraco && <div>{TEXTO_SINAL_FRACO}</div>}
+          </Mensagem>
+        </div>
+      )}
       {alerta.ativo === false && (
         <Mensagem tipo="aviso">
           A última execução desta tipologia não detectou mais este alerta. Ele continua aqui porque tem decisão registrada.
@@ -156,6 +238,7 @@ export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, a
           </ol>
         </section>
       )}
+      {ehCombinacao && <SecaoCombinacao alerta={alerta} aoIrParaAlerta={aoIrParaAlerta} />}
       <div className="alerta-grade">
         <section>
           <h4>Parâmetros da regra</h4>
@@ -198,13 +281,106 @@ export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, a
           </tbody>
         </Tabela>
       </section>
-      <SecaoDecisao alerta={alerta} situacao={situacao} aoDecidir={aoDecidir} />
+      <SecaoDecisao alerta={alerta} situacao={situacao} aoDecidir={aoDecidir} avisoNoAlto={avisoDePista} />
       {casoId !== undefined && (
         <div className="alerta-decisao">
           <Anotacoes casoId={casoId} alvoTipo="alerta" alvoId={alerta.id} sobDemanda />
         </div>
       )}
     </article>
+  );
+}
+
+const ROTULOS_SITUACAO_COMPONENTE: Record<string, string> = { pendente: 'pendente', confirmado: 'confirmado', descartado: 'descartado' };
+
+/**
+ * Alerta de combinação explicado: cada alerta componente (com o peso e se conta ou não), a soma
+ * dos pesos e o número de tipologias distintas contra os mínimos, e o aviso de que não é escore de culpa.
+ */
+function SecaoCombinacao({ alerta, aoIrParaAlerta }: { alerta: Alerta; aoIrParaAlerta?: (alertaId: Id) => void }) {
+  const parametros = alerta.parametros ?? {};
+  const componentes = lerComponentes(parametros);
+  const contam = componentes.filter((c) => c.conta !== false);
+  const numero = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  // Na falta dos totais, a tela soma o que os componentes dizem (o número mostrado é sempre conferível na tabela).
+  const soma = numero(parametros.soma_pesos) ?? contam.reduce((total, c) => total + (numero(c.peso) ?? 0), 0);
+  const distintas = numero(parametros.tipologias_distintas) ?? new Set(contam.map((c) => c.tipologia)).size;
+  const pesoMinimo = numero(parametros.comb_peso_minimo);
+  const minimoTipologias = numero(parametros.comb_minimo_tipologias);
+  const aviso = typeof parametros.aviso === 'string' && parametros.aviso.trim() ? parametros.aviso : AVISO_COMBINACAO;
+  const entidade = typeof parametros.entidade_rotulo === 'string' ? parametros.entidade_rotulo : '';
+  const ir = (alertaId: Id) => (aoIrParaAlerta ? aoIrParaAlerta(alertaId) : void irParaCartaoAlerta(alertaId));
+
+  return (
+    <section className="alerta-combinacao-detalhe" aria-label={`Combinação explicada, alerta ${String(alerta.id)}`}>
+      <h4>Como esta combinação foi formada{entidade ? `: ${mascararCpfs(entidade)}` : ''}</h4>
+      <dl className="combinacao-totais">
+        <dt>Soma dos pesos</dt>
+        <dd data-testid="combinacao-soma">
+          <strong>{formatarPeso(soma)}</strong>
+          {pesoMinimo !== undefined && <> (mínimo para disparar: {formatarPeso(pesoMinimo)})</>}
+        </dd>
+        <dt>Tipologias distintas</dt>
+        <dd data-testid="combinacao-distintas">
+          <strong>{distintas}</strong>
+          {minimoTipologias !== undefined && <> (mínimo para disparar: {minimoTipologias})</>}
+        </dd>
+      </dl>
+      {componentes.length === 0 ? (
+        <p className="vazio">O servidor não informou os alertas componentes desta combinação.</p>
+      ) : (
+        <Tabela rotulo={`Alertas que compõem a combinação ${String(alerta.id)}`} className="tabela-componentes">
+          <thead>
+            <tr>
+              <th scope="col">Código</th>
+              <th scope="col">Tipologia</th>
+              <th scope="col">Alerta</th>
+              <th scope="col">Peso</th>
+              <th scope="col">Conta na soma?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {componentes.map((c, i) => {
+              const conta = c.conta !== false;
+              return (
+                <tr key={`${String(c.alerta_id)}-${i}`} data-testid="componente-combinacao" className={conta ? undefined : 'componente-nao-conta'}>
+                  <td>
+                    <span className="br-tag small etiqueta-tipologia">{c.tipologia}</span>
+                  </td>
+                  <td>
+                    {c.tipologia_nome || NOMES_TIPOLOGIA[c.tipologia] || '—'}
+                    {c.sinal_fraco && (
+                      <div>
+                        <span className="br-tag small etiqueta-sinal-fraco">sinal fraco</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="quebra">
+                    {c.alerta_id !== undefined && c.alerta_id !== null ? (
+                      <button type="button" className="botao-link" onClick={() => ir(c.alerta_id)} title="Ir para o cartão deste alerta">
+                        {mascararCpfs(c.titulo)}
+                      </button>
+                    ) : (
+                      mascararCpfs(c.titulo)
+                    )}
+                    {c.situacao && <div className="mudo">situação: {ROTULOS_SITUACAO_COMPONENTE[c.situacao] ?? c.situacao}</div>}
+                  </td>
+                  <td>{formatarPeso(c.peso)}</td>
+                  <td>
+                    <strong>{conta ? 'conta' : 'não conta'}</strong>
+                    {c.observacao && <div className="mudo quebra">{mascararCpfs(c.observacao)}</div>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Tabela>
+      )}
+      <p className="mudo">Alertas descartados pelo investigador não entram na combinação. Os pesos são decisão do autor do protótipo e estão na aba Tipologias.</p>
+      <div data-testid="aviso-combinacao">
+        <Mensagem tipo="info">{aviso}</Mensagem>
+      </div>
+    </section>
   );
 }
 
@@ -220,7 +396,18 @@ function LinhaDecisao({ decisao, emVigor }: { decisao: DecisaoAlerta; emVigor: b
 }
 
 /** Decisão do investigador (RF12): o alerta é pista; confirmar ou descartar exige justificativa. */
-function SecaoDecisao({ alerta, situacao, aoDecidir }: { alerta: Alerta; situacao: SituacaoAlerta; aoDecidir?: CartaoAlertaProps['aoDecidir'] }) {
+function SecaoDecisao({
+  alerta,
+  situacao,
+  aoDecidir,
+  avisoNoAlto = false,
+}: {
+  alerta: Alerta;
+  situacao: SituacaoAlerta;
+  aoDecidir?: CartaoAlertaProps['aoDecidir'];
+  /** Verdadeiro: o cartão já diz, no alto, que o alerta é pista; aqui o texto não se repete. */
+  avisoNoAlto?: boolean;
+}) {
   const idCampo = useId();
   const [justificativa, setJustificativa] = useState('');
   const [enviando, setEnviando] = useState<DecisaoAlertaValor | null>(null);
@@ -247,7 +434,9 @@ function SecaoDecisao({ alerta, situacao, aoDecidir }: { alerta: Alerta; situaca
   return (
     <section className="alerta-decisao" aria-label={`Decisão sobre o alerta ${String(alerta.id)}`}>
       <h4>Decisão do investigador</h4>
-      <p className="mudo">O alerta é uma pista, não uma conclusão. A decisão e a justificativa ficam no alerta e na trilha de auditoria.</p>
+      <p className="mudo">
+        {!avisoNoAlto && 'O alerta é uma pista, não uma conclusão. '}A decisão e a justificativa ficam no alerta e na trilha de auditoria.
+      </p>
       {decisoes.length > 0 ? (
         <ol className="lista-decisoes" aria-label="Histórico de decisões">
           {decisoes.map((d, i) => (

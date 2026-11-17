@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Grafo } from '../api/tipos';
-import { paraElementosCytoscape } from './mapear';
+import { ESTILO_NO, paraElementosCytoscape } from './mapear';
 
 const grafo: Grafo = {
   nos: [
@@ -78,5 +78,29 @@ describe('paraElementosCytoscape — tipos do horizonte 2', () => {
     const arestas = elementos.filter((e) => e.group === 'edges').map((e) => e.data);
     expect(arestas.map((a) => a.rotulo)).toEqual(['sancionada em', 'servidor de', 'doou para', 'edital de']);
     expect(arestas.every((a) => a.cor !== '#666666')).toBe(true);
+  });
+
+  it('RF03: convênio (tipologia L16) tem rótulo, cor e forma próprios, e as arestas convenente de e concedente de', () => {
+    const elementos = paraElementosCytoscape({
+      nos: [
+        { id: 'emp-9', tipo: 'empresa', rotulo: 'ASSOCIACAO SINTETICA' },
+        { id: 'org-3', tipo: 'orgao', rotulo: 'MINISTERIO SINTETICO' },
+        { id: 'conv-1', tipo: 'convenio', rotulo: 'Convênio 900001' },
+      ],
+      arestas: [
+        { origem: 'emp-9', destino: 'conv-1', tipo: 'convenente_de', atributos: {}, captura_id: 'cap-20' },
+        { origem: 'org-3', destino: 'conv-1', tipo: 'concedente_de', atributos: {}, captura_id: 'cap-20' },
+      ],
+    });
+    const nos = elementos.filter((e) => e.group === 'nodes').map((e) => e.data);
+    const convenio = nos.find((n) => n.tipo === 'convenio')!;
+    expect(convenio.tipoRotulo).toBe('Convênio');
+    expect(convenio.cor).not.toBe('#555555');
+    expect(new Set(Object.values(ESTILO_NO).map((e) => e.forma)).size).toBe(Object.keys(ESTILO_NO).length);
+    expect(new Set(Object.values(ESTILO_NO).map((e) => e.cor)).size).toBe(Object.keys(ESTILO_NO).length);
+    const arestas = elementos.filter((e) => e.group === 'edges').map((e) => e.data);
+    expect(arestas.map((a) => a.rotulo)).toEqual(['convenente de', 'concedente de']);
+    expect(arestas.every((a) => a.cor !== '#666666')).toBe(true);
+    expect(arestas[0].estilo).not.toBe(arestas[1].estilo);
   });
 });
