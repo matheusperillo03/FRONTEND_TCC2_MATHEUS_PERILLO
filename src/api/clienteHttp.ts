@@ -4,8 +4,8 @@
  * Regras de cabeçalho:
  * - `Authorization: Bearer <token>` em todas as rotas, menos `/health`.
  * - `X-Justificativa: <texto>` em toda rota, menos `/health`, `/me`,
- *   `/tipologias`, `/ia` e `/auth/*` (não são dado de caso e nunca levam o
- *   cabeçalho), como exige o back-end. Sem justificativa, a requisição nem é enviada
+ *   `/tipologias`, `/ia`, `/importacao-judicial/estado` e `/auth/*` (não são
+ *   dado de caso e nunca levam o cabeçalho), como exige o back-end. Sem justificativa, a requisição nem é enviada
  *   (ErroJustificativa). O texto vai codificado com `encodeURIComponent`,
  *   porque cabeçalhos HTTP não carregam UTF-8; o back-end decodifica.
  */
@@ -25,30 +25,37 @@ import type {
   ColetaRequisicao,
   ColetaResultado,
   ContextoSessao,
+  DecisaoJudicial,
   DecisaoSugestaoIa,
   DefinicaoMembro,
   EntidadeDetalhe,
   EntidadeResumo,
   EntradaAuditoria,
+  EstadoImportacaoJudicial,
   ExecucaoAlertas,
   ExecucaoMonitoramentoResultado,
   ExtracaoIa,
   FiltroAnotacoes,
+  FiltroRegistrosJudiciais,
   FiltroSugestoesIa,
   FormatoExportacao,
   FormatoRelatorio,
   Grafo,
   IaEstado,
   Id,
+  ImportacaoJudicial,
   Me,
   Membro,
   Monitoramento,
   NovaAnotacao,
   NovaDecisao,
+  NovaDecisaoJudicial,
+  NovaImportacaoJudicial,
   NovaTarefa,
   NovoCaso,
   NovoMonitoramento,
   NovoUsuario,
+  PaginaRegistrosJudiciais,
   RecoletaResultado,
   Saude,
   SessaoAtual,
@@ -81,7 +88,7 @@ interface OpcoesRequisicao {
   publica?: boolean;
   /** Exige justificativa preenchida; caso contrário lança ErroJustificativa. */
   exigeJustificativa?: boolean;
-  /** Rota que não é dado de caso (`/tipologias`, `/ia`, `/auth/*`): só o token, nunca o X-Justificativa. */
+  /** Rota que não é dado de caso (`/tipologias`, `/ia`, `/importacao-judicial/estado`, `/auth/*`): só o token, nunca o X-Justificativa. */
   semJustificativa?: boolean;
   /** Devolve texto bruto em vez de JSON. */
   texto?: boolean;
@@ -413,6 +420,42 @@ export class ClienteHttp implements ApiCliente {
 
   obterTextoCaptura(casoId: Id, capturaId: Id): Promise<TextoCaptura> {
     return this.requisitar(`/casos/${enc(casoId)}/capturas/${enc(capturaId)}/texto`, { exigeJustificativa: true });
+  }
+
+  // ---- RF10: importação sob ordem judicial ------------------------------------
+  // Todas as rotas do caso exigem justificativa, e cada chamada (inclusive GET) entra na auditoria (RNF02).
+
+  estadoImportacaoJudicial(): Promise<EstadoImportacaoJudicial> {
+    return this.requisitar('/importacao-judicial/estado', { semJustificativa: true });
+  }
+
+  registrarDecisaoJudicial(casoId: Id, corpo: NovaDecisaoJudicial): Promise<DecisaoJudicial> {
+    return this.requisitar(`/casos/${enc(casoId)}/importacao-judicial/decisoes`, { metodo: 'POST', corpo, exigeJustificativa: true });
+  }
+
+  listarDecisoesJudiciais(casoId: Id): Promise<DecisaoJudicial[]> {
+    return this.requisitar(`/casos/${enc(casoId)}/importacao-judicial/decisoes`, { exigeJustificativa: true });
+  }
+
+  importarSobOrdemJudicial(casoId: Id, decisaoId: Id, corpo: NovaImportacaoJudicial): Promise<ImportacaoJudicial> {
+    return this.requisitar(`/casos/${enc(casoId)}/importacao-judicial/decisoes/${enc(decisaoId)}/importacoes`, { metodo: 'POST', corpo, exigeJustificativa: true });
+  }
+
+  listarImportacoesJudiciais(casoId: Id): Promise<ImportacaoJudicial[]> {
+    return this.requisitar(`/casos/${enc(casoId)}/importacao-judicial/importacoes`, { exigeJustificativa: true });
+  }
+
+  listarRegistrosJudiciais(casoId: Id, filtro: FiltroRegistrosJudiciais = {}): Promise<PaginaRegistrosJudiciais> {
+    return this.requisitar(`/casos/${enc(casoId)}/importacao-judicial/registros`, {
+      query: {
+        decisao_id: filtro.decisao_id === undefined ? undefined : String(filtro.decisao_id),
+        tipo: filtro.tipo,
+        quarentena: filtro.quarentena === undefined ? undefined : String(filtro.quarentena),
+        limite: filtro.limite,
+        deslocamento: filtro.deslocamento,
+      },
+      exigeJustificativa: true,
+    });
   }
 }
 

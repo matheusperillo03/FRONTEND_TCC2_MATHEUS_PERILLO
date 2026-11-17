@@ -968,6 +968,147 @@ export interface FiltroSugestoesIa {
   captura_id?: Id;
 }
 
+// ---- RF10: importação sob ordem judicial (módulo separado, desligado por padrão) ----
+
+/** Arquivos do leiaute (Instrução Normativa BCB nº 636/2025, Anexo I). */
+export type TipoArquivoJudicial = 'AGENCIAS' | 'CONTAS' | 'TITULARES' | 'EXTRATO' | 'ORIGEM_DESTINO';
+
+export const TIPOS_ARQUIVO_JUDICIAL: readonly TipoArquivoJudicial[] = ['AGENCIAS', 'CONTAS', 'TITULARES', 'EXTRATO', 'ORIGEM_DESTINO'];
+
+export type OrigemImportacaoJudicial = 'simba' | 'oficio' | 'midia';
+
+/**
+ * `GET /importacao-judicial/estado` (só o token). A tela do RF10 só existe
+ * quando `ativa` é verdadeiro; com o módulo desligado, as demais rotas respondem 404.
+ */
+export interface EstadoImportacaoJudicial {
+  ativa: boolean;
+  /** Perfis que podem registrar a decisão judicial (padrão do back-end: `delegado`). */
+  perfis_autorizados: string[];
+  leiaute: string;
+  arquivos: string[];
+  origens: string[];
+  /** Verdadeiro: o protótipo recusa pasta sem o marcador `SINTETICO`. */
+  somente_sintetico: boolean;
+}
+
+export interface ContaJudicial {
+  banco: string;
+  agencia: string;
+  conta: string;
+}
+
+/** Corpo de `POST /casos/{id}/importacao-judicial/decisoes`. Só `investigados` é opcional. */
+export interface NovaDecisaoJudicial {
+  numero_processo: string;
+  numero_decisao: string;
+  juizo: string;
+  /** AAAA-MM-DD. */
+  data_decisao: string;
+  periodo_inicio: string;
+  periodo_fim: string;
+  /** Ao menos uma conta. */
+  contas: ContaJudicial[];
+  /** CPF ou CNPJ, só dígitos ou formatado. */
+  investigados?: string[];
+  descricao_escopo: string;
+}
+
+export interface DecisaoJudicial {
+  id: Id;
+  caso_id: Id;
+  numero_processo: string;
+  numero_decisao: string;
+  juizo: string;
+  data_decisao: string;
+  periodo_inicio: string;
+  periodo_fim: string;
+  contas: ContaJudicial[];
+  /** CPF sempre descaracterizado (`***NNNNNN**`). */
+  investigados: string[];
+  descricao_escopo: string;
+  registrado_por: string;
+  registrado_em: string;
+  /** "sigiloso: ordem judicial nº … (processo …)": acompanha tudo o que foi importado sob a decisão. */
+  marca: string;
+  importacoes: number;
+}
+
+/** Corpo de `POST .../decisoes/{decisao_id}/importacoes`. `diretorio` é relativo à raiz do servidor. */
+export interface NovaImportacaoJudicial {
+  diretorio: string;
+  origem: OrigemImportacaoJudicial;
+  descricao_origem?: string;
+}
+
+export interface RejeicaoImportacao {
+  linha: number;
+  campo: string;
+  motivo: string;
+}
+
+/** Relatório de validação de um arquivo importado. `aceitas` inclui as linhas em quarentena. */
+export interface ArquivoImportado {
+  tipo: TipoArquivoJudicial | string;
+  nome_arquivo: string;
+  sha256: string;
+  tamanho_bytes: number;
+  linhas: number;
+  aceitas: number;
+  rejeitadas: number;
+  em_quarentena: number;
+  rejeicoes: RejeicaoImportacao[];
+}
+
+export interface TotaisImportacao {
+  linhas: number;
+  aceitas: number;
+  rejeitadas: number;
+  em_quarentena: number;
+}
+
+export interface ImportacaoJudicial {
+  id: Id;
+  decisao_id: Id;
+  caso_id: Id;
+  origem: OrigemImportacaoJudicial | string;
+  descricao_origem?: string;
+  importado_por: string;
+  importado_em: string;
+  marca: string;
+  arquivos: ArquivoImportado[];
+  totais: TotaisImportacao;
+}
+
+/** Query de `GET /casos/{id}/importacao-judicial/registros`. */
+export interface FiltroRegistrosJudiciais {
+  decisao_id?: Id;
+  tipo?: TipoArquivoJudicial;
+  quarentena?: boolean;
+  /** 1 a 200 (padrão do back-end: 50). */
+  limite?: number;
+  deslocamento?: number;
+}
+
+/** Linha importada. Em quarentena: válida no leiaute, mas fora do escopo da decisão. */
+export interface RegistroJudicial {
+  id: Id;
+  importacao_id: Id;
+  decisao_id: Id;
+  tipo: TipoArquivoJudicial | string;
+  linha: number;
+  quarentena: boolean;
+  motivo_quarentena: string;
+  marca: string;
+  /** Datas em ISO, valores em reais e CPF descaracterizado. */
+  campos: Record<string, unknown>;
+}
+
+export interface PaginaRegistrosJudiciais {
+  total: number;
+  itens: RegistroJudicial[];
+}
+
 /**
  * Interface única do cliente. Implementada pelo cliente HTTP (contrato v0)
  * e pelo cliente simulado (VITE_MOCK=1).
@@ -1050,6 +1191,18 @@ export interface ApiCliente {
   /** Aceita ou recusa a sugestão, com justificativa. A decisão é única (409 se já decidida). */
   decidirSugestaoIa(casoId: Id, sugestaoId: Id, corpo: DecisaoSugestaoIa): Promise<SugestaoIa>;
   obterTextoCaptura(casoId: Id, capturaId: Id): Promise<TextoCaptura>;
+
+  // ---- RF10: importação sob ordem judicial (módulo separado) ----
+  /** Não é dado de caso: exige só o token. Com `ativa: false`, nada do módulo aparece na interface. */
+  estadoImportacaoJudicial(): Promise<EstadoImportacaoJudicial>;
+  /** Só perfil autorizado e membro do caso (403 para os demais). Sem decisão registrada, nada é importado. */
+  registrarDecisaoJudicial(casoId: Id, corpo: NovaDecisaoJudicial): Promise<DecisaoJudicial>;
+  listarDecisoesJudiciais(casoId: Id): Promise<DecisaoJudicial[]>;
+  /** Importa a pasta sob a decisão escolhida e devolve o relatório de validação por arquivo. */
+  importarSobOrdemJudicial(casoId: Id, decisaoId: Id, corpo: NovaImportacaoJudicial): Promise<ImportacaoJudicial>;
+  listarImportacoesJudiciais(casoId: Id): Promise<ImportacaoJudicial[]>;
+  /** Cada consulta (inclusive esta) fica na auditoria. */
+  listarRegistrosJudiciais(casoId: Id, filtro?: FiltroRegistrosJudiciais): Promise<PaginaRegistrosJudiciais>;
 }
 
 /** Credenciais e justificativa lidas no momento de cada requisição. */

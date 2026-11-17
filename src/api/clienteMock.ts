@@ -11,6 +11,7 @@ import {
   ALERTAS,
   ANOTACOES_DEMO,
   ARESTAS,
+  ARQUIVOS_JUDICIAIS_DEMO,
   AVISO_COMBINACAO_DEMO,
   AVISOS_DEMO,
   CAPTURA_EDITAL_DEMO,
@@ -22,8 +23,10 @@ import {
   COLETAS_DEMO,
   CONECTORES_DEMO,
   CONTAS_DEMO,
+  DIRETORIO_JUDICIAL_DEMO,
   ENTIDADES,
   IA_DEMO,
+  IMPORTACAO_JUDICIAL_DEMO,
   ITENS_IA_DEMO,
   MAX_FALHAS_LOGIN_DEMO,
   MEMBROS_DEMO,
@@ -64,35 +67,43 @@ import {
   type ComparacaoCaptura,
   type ComponenteCombinacao,
   type ContextoSessao,
+  type DecisaoJudicial,
   type DecisaoSugestaoIa,
   type DefinicaoMembro,
   type EntidadeDetalhe,
   type EntidadeResumo,
   type EntradaAuditoria,
+  type EstadoImportacaoJudicial,
   type ExecucaoAlertas,
   type ExecucaoMonitoramento,
   type ExecucaoMonitoramentoResultado,
   type ExtracaoIa,
   type FiltroAnotacoes,
+  type FiltroRegistrosJudiciais,
   type FiltroSugestoesIa,
   type FormatoExportacao,
   type FormatoRelatorio,
   type Grafo,
   type IaEstado,
   type Id,
+  type ImportacaoJudicial,
   type Me,
   type Membro,
   type Monitoramento,
   type NovaAnotacao,
   type NovaDecisao,
+  type NovaDecisaoJudicial,
+  type NovaImportacaoJudicial,
   type NovaTarefa,
   type NovoCaso,
   type NovoMonitoramento,
   type NovoUsuario,
+  type PaginaRegistrosJudiciais,
   type PapelCaso,
   type ParametrosTipologias,
   type RecoletaMonitorada,
   type RecoletaResultado,
+  type RegistroJudicial,
   type Saude,
   type SessaoAtual,
   type SessaoLogin,
@@ -121,6 +132,11 @@ export interface OpcoesClienteMock extends ContextoSessao {
   portalConfigurado?: boolean;
   /** Falso simula o servidor com a extração por IA desligada (H22). Padrão: verdadeiro. */
   iaAtiva?: boolean;
+  /**
+   * RF10: liga ou desliga o módulo de importação sob ordem judicial. Padrão: o que
+   * `IMPORTACAO_JUDICIAL_DEMO.ativa` disser (ligado na demonstração; no back-end, desligado).
+   */
+  importacaoJudicialAtiva?: boolean;
 }
 
 /** Conta do simulado com o estado que o login altera. */
@@ -138,6 +154,7 @@ interface SessaoSimulada {
 }
 
 const MENSAGEM_CREDENCIAIS = 'Usuário ou senha inválidos.';
+const MENSAGEM_JUDICIAL_DESLIGADO = 'O módulo de importação sob ordem judicial está desligado neste servidor.';
 const MENSAGEM_BLOQUEIO = 'Conta bloqueada temporariamente por excesso de tentativas. Tente de novo mais tarde.';
 const SITUACOES_ABERTAS = new Set(['aberta', 'em_andamento']);
 const TAMANHO_MINIMO_SENHA = 12;
@@ -201,6 +218,11 @@ export class ClienteMock implements ApiCliente {
   private tarefasPorCaso = new Map<string, Tarefa[]>([[String(CASO_DEMO.id), TAREFAS_DEMO.map(clonarTarefa)]]);
   private extracoesPorCaso = new Map<string, ExtracaoIa[]>();
   private sugestoesIaPorCaso = new Map<string, SugestaoIa[]>();
+  // RF10: coleções à parte do dado aberto.
+  private readonly importacaoJudicialAtiva: boolean;
+  private decisoesJudiciaisPorCaso = new Map<string, DecisaoJudicial[]>();
+  private importacoesJudiciaisPorCaso = new Map<string, ImportacaoJudicial[]>();
+  private registrosJudiciaisPorCaso = new Map<string, RegistroJudicial[]>();
 
   constructor(opcoes: OpcoesClienteMock) {
     this.sessao = { obterToken: opcoes.obterToken, obterJustificativa: opcoes.obterJustificativa };
@@ -208,6 +230,7 @@ export class ClienteMock implements ApiCliente {
     this.tokens = opcoes.tokens ?? TOKENS_DEMO;
     this.portalConfigurado = opcoes.portalConfigurado ?? true;
     this.iaAtiva = opcoes.iaAtiva ?? true;
+    this.importacaoJudicialAtiva = opcoes.importacaoJudicialAtiva ?? IMPORTACAO_JUDICIAL_DEMO.ativa;
     this.registrar('sistema', 'inicializacao', null, 'inicialização do modo simulado', { fixtures: 'sintéticas' });
     // A demonstração já traz uma extração feita sobre o edital sintético, com as sugestões pendentes.
     // Os identificadores dela são fixos (ext-1, sug-2 a sug-7) e não consomem a numeração dos demais.
@@ -1987,6 +2010,188 @@ export class ClienteMock implements ApiCliente {
       modelo: sugestao.modelo,
     });
     return { ...sugestao, campos: { ...sugestao.campos } };
+  }
+
+  // ---- RF10: importação sob ordem judicial (módulo separado) -----------------
+  // Os dados ficam em coleções próprias: não entram em entidades, grafo, relatório nem exportações.
+
+  /** Não é dado de caso: exige só o token e não entra na auditoria. */
+  async estadoImportacaoJudicial(): Promise<EstadoImportacaoJudicial> {
+    this.autenticar();
+    await this.esperar();
+    return { ...IMPORTACAO_JUDICIAL_DEMO, ativa: this.importacaoJudicialAtiva, perfis_autorizados: [...IMPORTACAO_JUDICIAL_DEMO.perfis_autorizados], arquivos: [...IMPORTACAO_JUDICIAL_DEMO.arquivos], origens: [...IMPORTACAO_JUDICIAL_DEMO.origens] };
+  }
+
+  /**
+   * Porta de entrada das rotas do módulo: token, justificativa, módulo ligado (404 se não), caso
+   * existente e papel. Cada chamada, inclusive de leitura, fica na auditoria (RNF02).
+   */
+  private async acessoJudicial(acao: string, casoId: Id, rota: string, papelMinimo: PapelCaso, detalhes: Record<string, unknown> = {}): Promise<Me> {
+    const me = this.autenticar();
+    const justificativa = this.exigirJustificativa(rota);
+    await this.esperar();
+    if (!this.importacaoJudicialAtiva) throw new ErroApi(404, rota, MENSAGEM_JUDICIAL_DESLIGADO);
+    this.caso(casoId);
+    this.exigirPapel(me, casoId, justificativa, papelMinimo, acao);
+    this.registrar(me.usuario, acao, casoId, justificativa, detalhes);
+    return me;
+  }
+
+  private decisoesJudiciais(casoId: Id): DecisaoJudicial[] {
+    return this.decisoesJudiciaisPorCaso.get(String(casoId)) ?? [];
+  }
+
+  private decisaoSaida(casoId: Id, d: DecisaoJudicial): DecisaoJudicial {
+    const importacoes = (this.importacoesJudiciaisPorCaso.get(String(casoId)) ?? []).filter((i) => mesmoId(i.decisao_id, d.id)).length;
+    return { ...d, contas: d.contas.map((c) => ({ ...c })), investigados: [...d.investigados], importacoes };
+  }
+
+  async registrarDecisaoJudicial(casoId: Id, corpo: NovaDecisaoJudicial): Promise<DecisaoJudicial> {
+    const rota = `/casos/${casoId}/importacao-judicial/decisoes`;
+    const me = this.autenticar();
+    const justificativa = this.exigirJustificativa(rota);
+    await this.esperar();
+    if (!this.importacaoJudicialAtiva) throw new ErroApi(404, rota, MENSAGEM_JUDICIAL_DESLIGADO);
+    this.caso(casoId);
+    if (!IMPORTACAO_JUDICIAL_DEMO.perfis_autorizados.includes(me.perfil)) {
+      this.registrar(me.usuario, 'importacao_judicial.acesso_negado', casoId, justificativa, { rota, perfil: me.perfil });
+      throw new ErroApi(403, rota, `Só o perfil ${IMPORTACAO_JUDICIAL_DEMO.perfis_autorizados.join(' ou ')} registra decisão judicial.`);
+    }
+    this.exigirPapel(me, casoId, justificativa, 'investigador', 'importacao_judicial.decisao_registrar');
+    const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+    const obrigatorios = ['numero_processo', 'numero_decisao', 'juizo', 'data_decisao', 'periodo_inicio', 'periodo_fim', 'descricao_escopo'] as const;
+    for (const campo of obrigatorios) if (!texto(corpo[campo])) throw new ErroApi(422, rota, `${campo}: campo obrigatório`);
+    for (const campo of ['data_decisao', 'periodo_inicio', 'periodo_fim'] as const) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(texto(corpo[campo]))) throw new ErroApi(422, rota, `${campo}: use o formato AAAA-MM-DD`);
+    }
+    if (texto(corpo.periodo_inicio) > texto(corpo.periodo_fim)) throw new ErroApi(422, rota, 'periodo_fim: não pode ser anterior a periodo_inicio');
+    const contas = (corpo.contas ?? []).map((c) => ({ banco: texto(c.banco), agencia: texto(c.agencia), conta: texto(c.conta) }));
+    if (!contas.length || contas.some((c) => !c.banco || !c.agencia || !c.conta)) throw new ErroApi(422, rota, 'contas: informe ao menos uma conta, com banco, agência e conta');
+    // CPF nunca é guardado nem devolvido completo: só `***NNNNNN**`. CNPJ fica com as 14 posições.
+    const investigados = (corpo.investigados ?? []).map((i) => {
+      const limpo = limparCnpj(i);
+      if (/^\d{11}$/.test(soDigitos(i))) return `***${soDigitos(i).slice(3, 9)}**`;
+      if (temFormaDeCnpj(limpo)) return limpo;
+      throw new ErroApi(422, rota, 'investigados: informe CPF ou CNPJ');
+    });
+    const decisao: DecisaoJudicial = {
+      id: `dj-${this.proximoId++}`,
+      caso_id: casoId,
+      numero_processo: texto(corpo.numero_processo),
+      numero_decisao: texto(corpo.numero_decisao),
+      juizo: texto(corpo.juizo),
+      data_decisao: texto(corpo.data_decisao),
+      periodo_inicio: texto(corpo.periodo_inicio),
+      periodo_fim: texto(corpo.periodo_fim),
+      contas,
+      investigados,
+      descricao_escopo: texto(corpo.descricao_escopo),
+      registrado_por: me.usuario,
+      registrado_em: new Date().toISOString(),
+      marca: `sigiloso: ordem judicial nº ${texto(corpo.numero_decisao)} (processo ${texto(corpo.numero_processo)})`,
+      importacoes: 0,
+    };
+    this.decisoesJudiciaisPorCaso.set(String(casoId), [...this.decisoesJudiciais(casoId), decisao]);
+    // A auditoria vai para o relatório do caso: guarda só o identificador da decisão, nada do conteúdo sigiloso.
+    this.registrar(me.usuario, 'importacao_judicial.decisao_registrar', casoId, justificativa, { decisao_id: decisao.id });
+    return this.decisaoSaida(casoId, decisao);
+  }
+
+  /** SUPOSIÇÃO: o contrato só fixa o papel mínimo (investigador) para os registros; decisões e importações aceitam o leitor. */
+  async listarDecisoesJudiciais(casoId: Id): Promise<DecisaoJudicial[]> {
+    await this.acessoJudicial('importacao_judicial.decisoes_listar', casoId, `/casos/${casoId}/importacao-judicial/decisoes`, 'leitor');
+    return this.decisoesJudiciais(casoId).map((d) => this.decisaoSaida(casoId, d));
+  }
+
+  /**
+   * Importa a pasta sintética sob a decisão: cada linha válida vira um registro com a marca da
+   * decisão; a que cita conta ou data fora do escopo vai para a quarentena; a inválida é rejeitada.
+   */
+  async importarSobOrdemJudicial(casoId: Id, decisaoId: Id, corpo: NovaImportacaoJudicial): Promise<ImportacaoJudicial> {
+    const rota = `/casos/${casoId}/importacao-judicial/decisoes/${decisaoId}/importacoes`;
+    const me = await this.acessoJudicial('importacao_judicial.importar', casoId, rota, 'investigador', { decisao_id: decisaoId, diretorio: corpo.diretorio, origem: corpo.origem });
+    const decisao = this.decisoesJudiciais(casoId).find((d) => mesmoId(d.id, decisaoId));
+    if (!decisao) throw new ErroApi(404, rota, 'Decisão judicial não encontrada no caso.');
+    if (!IMPORTACAO_JUDICIAL_DEMO.origens.includes(corpo.origem)) throw new ErroApi(422, rota, `origem: use ${IMPORTACAO_JUDICIAL_DEMO.origens.join(', ')}`);
+    if ((corpo.diretorio ?? '').trim() !== DIRETORIO_JUDICIAL_DEMO) {
+      throw new ErroApi(422, rota, 'Pasta inexistente, sem o marcador SINTETICO ou sem nenhum arquivo do leiaute. Este protótipo só importa dados sintéticos.');
+    }
+    const importacaoId = `ij-${this.proximoId++}`;
+    const contasDaDecisao = new Set(decisao.contas.map((c) => c.conta));
+    const motivoQuarentena = (conta?: string, data?: string): string => {
+      if (conta && !contasDaDecisao.has(conta)) return `conta ${conta} fora das contas autorizadas pela decisão`;
+      if (data && (data < decisao.periodo_inicio || data > decisao.periodo_fim)) return `data ${data} fora do período da decisão (${decisao.periodo_inicio} a ${decisao.periodo_fim})`;
+      return '';
+    };
+    const registros: RegistroJudicial[] = [];
+    const arquivos = ARQUIVOS_JUDICIAIS_DEMO.map((arquivo) => {
+      let quarentena = 0;
+      for (const linha of arquivo.linhas) {
+        const motivo = motivoQuarentena(linha.conta, linha.data);
+        if (motivo) quarentena += 1;
+        registros.push({
+          id: `rj-${this.proximoId++}`,
+          importacao_id: importacaoId,
+          decisao_id: decisao.id,
+          tipo: arquivo.tipo,
+          linha: linha.linha,
+          quarentena: motivo !== '',
+          motivo_quarentena: motivo,
+          marca: decisao.marca,
+          campos: { ...linha.campos },
+        });
+      }
+      return {
+        tipo: arquivo.tipo,
+        nome_arquivo: arquivo.nome_arquivo,
+        sha256: hashSintetico(`${DIRETORIO_JUDICIAL_DEMO}/${arquivo.nome_arquivo}`),
+        tamanho_bytes: arquivo.tamanho_bytes,
+        linhas: arquivo.linhas.length + arquivo.rejeicoes.length,
+        aceitas: arquivo.linhas.length,
+        rejeitadas: arquivo.rejeicoes.length,
+        em_quarentena: quarentena,
+        rejeicoes: arquivo.rejeicoes.map((r) => ({ ...r })),
+      };
+    });
+    const soma = (campo: 'linhas' | 'aceitas' | 'rejeitadas' | 'em_quarentena') => arquivos.reduce((total, a) => total + a[campo], 0);
+    const importacao: ImportacaoJudicial = {
+      id: importacaoId,
+      decisao_id: decisao.id,
+      caso_id: casoId,
+      origem: corpo.origem,
+      descricao_origem: (corpo.descricao_origem ?? '').trim(),
+      importado_por: me.usuario,
+      importado_em: new Date().toISOString(),
+      marca: decisao.marca,
+      arquivos,
+      totais: { linhas: soma('linhas'), aceitas: soma('aceitas'), rejeitadas: soma('rejeitadas'), em_quarentena: soma('em_quarentena') },
+    };
+    const chave = String(casoId);
+    this.importacoesJudiciaisPorCaso.set(chave, [importacao, ...(this.importacoesJudiciaisPorCaso.get(chave) ?? [])]);
+    this.registrosJudiciaisPorCaso.set(chave, [...(this.registrosJudiciaisPorCaso.get(chave) ?? []), ...registros]);
+    return structuredClone(importacao);
+  }
+
+  async listarImportacoesJudiciais(casoId: Id): Promise<ImportacaoJudicial[]> {
+    await this.acessoJudicial('importacao_judicial.importacoes_listar', casoId, `/casos/${casoId}/importacao-judicial/importacoes`, 'leitor');
+    return structuredClone(this.importacoesJudiciaisPorCaso.get(String(casoId)) ?? []);
+  }
+
+  async listarRegistrosJudiciais(casoId: Id, filtro: FiltroRegistrosJudiciais = {}): Promise<PaginaRegistrosJudiciais> {
+    const rota = `/casos/${casoId}/importacao-judicial/registros`;
+    const limite = filtro.limite ?? 50;
+    const deslocamento = filtro.deslocamento ?? 0;
+    if (!Number.isInteger(limite) || limite < 1 || limite > 200) throw new ErroApi(422, rota, 'limite: inteiro de 1 a 200');
+    if (!Number.isInteger(deslocamento) || deslocamento < 0) throw new ErroApi(422, rota, 'deslocamento: inteiro a partir de 0');
+    // Como no contrato: ver os registros exige ao menos o papel de investigador.
+    await this.acessoJudicial('importacao_judicial.registros_listar', casoId, rota, 'investigador', { ...filtro });
+    const todos = (this.registrosJudiciaisPorCaso.get(String(casoId)) ?? []).filter(
+      (r) =>
+        (filtro.decisao_id === undefined || mesmoId(r.decisao_id, filtro.decisao_id)) &&
+        (filtro.tipo === undefined || r.tipo === filtro.tipo) &&
+        (filtro.quarentena === undefined || r.quarentena === filtro.quarentena),
+    );
+    return { total: todos.length, itens: structuredClone(todos.slice(deslocamento, deslocamento + limite)) };
   }
 }
 
