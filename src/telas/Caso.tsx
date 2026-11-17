@@ -1,5 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import type { CasoDetalhe, EntidadeResumo, IaEstado, Id } from '../api';
+import type { CasoDetalhe, EntidadeResumo, EstadoImportacaoJudicial, IaEstado, Id } from '../api';
 import { Carregando, Mensagem, formatarDia } from '../componentes/basicos';
 import { PapelProvider, papelNoCaso, rotuloPapel } from '../sessao/PapelContext';
 import { useSessao } from '../sessao/SessaoContext';
@@ -11,13 +11,15 @@ import { AbaEntidades } from './abas/AbaEntidades';
 import { AbaEquipe } from './abas/AbaEquipe';
 import { AbaGrafo } from './abas/AbaGrafo';
 import { AbaMonitoramento } from './abas/AbaMonitoramento';
+import { AbaOrdemJudicial } from './abas/AbaOrdemJudicial';
 import { AbaRelatorio } from './abas/AbaRelatorio';
 import { AbaSugestoesIa } from './abas/AbaSugestoesIa';
 import { AbaTipologias } from './abas/AbaTipologias';
 
-export type NomeAba = 'coleta' | 'entidades' | 'grafo' | 'alertas' | 'ia' | 'tipologias' | 'monitoramento' | 'equipe' | 'auditoria' | 'relatorio';
+export type NomeAba = 'coleta' | 'entidades' | 'grafo' | 'alertas' | 'ia' | 'tipologias' | 'monitoramento' | 'equipe' | 'judicial' | 'auditoria' | 'relatorio';
 
-const ABAS: { id: NomeAba; rotulo: string }[] = [
+/** A aba `judicial` (RF10) só entra na tela quando o servidor diz que o módulo está ligado. */
+const TODAS_AS_ABAS: { id: NomeAba; rotulo: string }[] = [
   { id: 'coleta', rotulo: 'Coleta' },
   { id: 'entidades', rotulo: 'Entidades' },
   { id: 'grafo', rotulo: 'Grafo' },
@@ -26,6 +28,7 @@ const ABAS: { id: NomeAba; rotulo: string }[] = [
   { id: 'tipologias', rotulo: 'Tipologias' },
   { id: 'monitoramento', rotulo: 'Monitoramento' },
   { id: 'equipe', rotulo: 'Equipe' },
+  { id: 'judicial', rotulo: 'Ordem judicial' },
   { id: 'auditoria', rotulo: 'Auditoria' },
   { id: 'relatorio', rotulo: 'Relatório' },
 ];
@@ -50,6 +53,8 @@ export function Caso({ casoId, aoVoltar, abaInicial = 'coleta' }: CasoProps) {
   const [capturaIa, setCapturaIa] = useState<Id | null>(null);
   /** Estado da extração por IA no servidor (`GET /ia`): não é dado de caso e não pede justificativa. */
   const ia = useChamada<IaEstado>();
+  /** Estado do módulo de importação sob ordem judicial (`GET /importacao-judicial/estado`): só o token. */
+  const judicial = useChamada<EstadoImportacaoJudicial>();
 
   useEffect(() => {
     if (justificativa.trim()) void detalhe.executar(() => cliente.obterCaso(casoId));
@@ -59,8 +64,13 @@ export function Caso({ casoId, aoVoltar, abaInicial = 'coleta' }: CasoProps) {
   useEffect(() => {
     // Se a consulta falhar, a aba mostra o estado como desconhecido e não oferece a extração.
     void ia.executar(() => cliente.estadoIa());
+    // RF10: com o módulo desligado, ou se a consulta falhar, nada do módulo aparece.
+    void judicial.executar(() => cliente.estadoImportacaoJudicial());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliente]);
+
+  const moduloJudicial = judicial.dados?.ativa === true ? judicial.dados : null;
+  const ABAS = TODAS_AS_ABAS.filter((a) => a.id !== 'judicial' || moduloJudicial !== null);
 
   function abrirEntidade(id: Id) {
     setEntidadeFoco(id);
@@ -241,6 +251,7 @@ export function Caso({ casoId, aoVoltar, abaInicial = 'coleta' }: CasoProps) {
           />
         )}
         {aba === 'equipe' && <AbaEquipe casoId={casoId} aoMudar={recarregar} />}
+        {aba === 'judicial' && moduloJudicial && <AbaOrdemJudicial casoId={casoId} estado={moduloJudicial} />}
         {aba === 'auditoria' && <AbaAuditoria casoId={casoId} />}
         {aba === 'relatorio' && <AbaRelatorio casoId={casoId} numeroProcedimento={detalhe.dados?.numero_procedimento} />}
           </section>

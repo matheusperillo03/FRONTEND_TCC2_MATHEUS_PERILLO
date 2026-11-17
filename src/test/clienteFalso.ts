@@ -6,9 +6,16 @@ export function clienteFalso(
   sobrescritas: Partial<ApiCliente> = {},
   justificativa = 'teste automatizado',
   /** Token de quem chama: `dev-analista` é o responsável pelo caso de demonstração; `dev-agente`, leitor. */
-  opcoes: { token?: string; iaAtiva?: boolean } = {},
+  /** `importacaoJudicial`: liga o módulo do RF10; nos testes ele vem desligado, como no padrão do back-end. */
+  opcoes: { token?: string; iaAtiva?: boolean; importacaoJudicial?: boolean } = {},
 ): ApiCliente {
-  const base = new ClienteMock({ obterToken: () => opcoes.token ?? 'dev-analista', obterJustificativa: () => justificativa, latenciaMs: 0, iaAtiva: opcoes.iaAtiva });
+  const base = new ClienteMock({
+    obterToken: () => opcoes.token ?? 'dev-analista',
+    obterJustificativa: () => justificativa,
+    latenciaMs: 0,
+    iaAtiva: opcoes.iaAtiva,
+    importacaoJudicialAtiva: opcoes.importacaoJudicial ?? false,
+  });
   return new Proxy(base, {
     get(alvo, prop: keyof ApiCliente) {
       if (prop in sobrescritas) return sobrescritas[prop];

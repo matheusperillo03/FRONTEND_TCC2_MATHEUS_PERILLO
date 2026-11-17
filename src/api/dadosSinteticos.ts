@@ -19,12 +19,15 @@ import type {
   Caso,
   ColetaRegistro,
   EntidadeDetalhe,
+  EstadoImportacaoJudicial,
   Evidencia,
   Id,
   Membro,
   Monitoramento,
+  NovaDecisaoJudicial,
   PerfilUsuario,
   Tarefa,
+  TipoArquivoJudicial,
   Tipologia,
   TipologiaCatalogo,
 } from './tipos';
@@ -2200,6 +2203,138 @@ export const ITENS_IA_DEMO: { tipo: string; valor: string; campos: Record<string
 export const RECUSAS_IA_DEMO = [
   { motivo: 'trecho_nao_literal', tipo: 'empresa', valor: 'OMEGA INEXISTENTE SINTETICA LTDA', trecho: 'A vencedora do certame foi OMEGA INEXISTENTE SINTETICA LTDA' },
   { motivo: 'valor_fora_do_trecho', tipo: 'valor', valor: 'R$ 900.000,00', trecho: 'O valor estimado da contratação é de R$ 480.000,00' },
+];
+
+// ---- RF10: importação sob ordem judicial (módulo separado) --------------------
+
+/**
+ * Estado do módulo no modo simulado. `ativa: true` é a OPÇÃO EXPLÍCITA que liga
+ * o módulo na demonstração (no back-end ele vem desligado por padrão): para
+ * simular o servidor com o módulo desligado, troque para `false` aqui ou crie o
+ * `ClienteMock` com `importacaoJudicialAtiva: false` (é o que os testes fazem).
+ * Nada aqui é dado real: só há a pasta sintética `DIRETORIO_JUDICIAL_DEMO`.
+ */
+export const IMPORTACAO_JUDICIAL_DEMO: EstadoImportacaoJudicial = {
+  ativa: true,
+  perfis_autorizados: ['delegado'],
+  leiaute: 'Instrução Normativa BCB nº 636/2025, Anexo I',
+  arquivos: ['AGENCIAS', 'CONTAS', 'TITULARES', 'EXTRATO', 'ORIGEM_DESTINO'],
+  origens: ['simba', 'oficio', 'midia'],
+  somente_sintetico: true,
+};
+
+/** Única pasta que o simulado aceita importar (as demais respondem 422, como pasta sem o marcador SINTETICO). */
+export const DIRETORIO_JUDICIAL_DEMO = 'caso-sintetico';
+
+/** Conta sintética dentro do escopo da decisão de exemplo; a outra conta dos arquivos fica em quarentena. */
+export const CONTA_JUDICIAL_DEMO = { banco: '999', agencia: '00001', conta: '123456' };
+
+/** Decisão de exemplo (fictícia), para os testes e para preencher o formulário na demonstração. */
+export const DECISAO_JUDICIAL_DEMO: NovaDecisaoJudicial = {
+  numero_processo: '0000000-00.2026.8.07.0001',
+  numero_decisao: 'Decisão ID 123456',
+  juizo: '1ª Vara Criminal de Exemplópolis',
+  data_decisao: '2026-10-01',
+  periodo_inicio: '2026-01-01',
+  periodo_fim: '2026-06-30',
+  contas: [{ ...CONTA_JUDICIAL_DEMO }],
+  investigados: ['90000001000100'],
+  descricao_escopo: 'Afastamento do sigilo bancário das contas da empresa sintética ALFA',
+};
+
+export interface LinhaJudicialDemo {
+  linha: number;
+  /** Conta e data a que a linha se refere: o simulado as compara com o escopo da decisão (quarentena). */
+  conta?: string;
+  data?: string;
+  campos: Record<string, unknown>;
+}
+
+export interface ArquivoJudicialDemo {
+  tipo: TipoArquivoJudicial;
+  nome_arquivo: string;
+  tamanho_bytes: number;
+  linhas: LinhaJudicialDemo[];
+  rejeicoes: { linha: number; campo: string; motivo: string }[];
+}
+
+const lancamento = (linha: number, data: string, valor: number, natureza: 'C' | 'D', conta = CONTA_JUDICIAL_DEMO.conta): LinhaJudicialDemo => ({
+  linha,
+  conta,
+  data,
+  campos: {
+    CODIGO_CHAVE_EXTRATO: String(linha),
+    NUMERO_BANCO: '999',
+    NUMERO_AGENCIA: '00001',
+    NUMERO_CONTA: conta,
+    DATA_LANCAMENTO: data,
+    VALOR_LANCAMENTO: valor,
+    NATUREZA_LANCAMENTO: natureza,
+    DESCRICAO_LANCAMENTO: natureza === 'C' ? 'TRANSFERENCIA RECEBIDA (SINTETICO)' : 'TRANSFERENCIA ENVIADA (SINTETICO)',
+  },
+});
+
+/**
+ * Conteúdo da pasta sintética. Os nomes de campo de `EXTRATO` seguem o exemplo do
+ * contrato da API; os demais são ilustrativos (os reais são os do leiaute, que o
+ * back-end devolve). Todo CPF já vem descaracterizado; banco, contas e nomes são fictícios.
+ */
+export const ARQUIVOS_JUDICIAIS_DEMO: ArquivoJudicialDemo[] = [
+  {
+    tipo: 'AGENCIAS',
+    nome_arquivo: 'AGENCIAS.txt',
+    tamanho_bytes: 96,
+    linhas: [{ linha: 1, campos: { NUMERO_BANCO: '999', NUMERO_AGENCIA: '00001', NOME_AGENCIA: 'AGENCIA SINTETICA CENTRO', MUNICIPIO: 'EXEMPLOPOLIS', UF: 'DF' } }],
+    rejeicoes: [],
+  },
+  {
+    tipo: 'CONTAS',
+    nome_arquivo: 'CONTAS.txt',
+    tamanho_bytes: 188,
+    linhas: [
+      { linha: 1, conta: '123456', campos: { NUMERO_BANCO: '999', NUMERO_AGENCIA: '00001', NUMERO_CONTA: '123456', TIPO_CONTA: 'CONTA CORRENTE', DATA_ABERTURA: '2025-11-03' } },
+      { linha: 2, conta: '654321', campos: { NUMERO_BANCO: '999', NUMERO_AGENCIA: '00001', NUMERO_CONTA: '654321', TIPO_CONTA: 'CONTA CORRENTE', DATA_ABERTURA: '2024-02-19' } },
+    ],
+    rejeicoes: [],
+  },
+  {
+    tipo: 'TITULARES',
+    nome_arquivo: 'TITULARES.txt',
+    tamanho_bytes: 214,
+    linhas: [
+      { linha: 1, conta: '123456', campos: { NUMERO_CONTA: '123456', TIPO_TITULAR: 'PJ', CPF_CNPJ_TITULAR: '90000001000100', NOME_TITULAR: 'ALFA SINTETICA LTDA' } },
+      { linha: 2, conta: '123456', campos: { NUMERO_CONTA: '123456', TIPO_TITULAR: 'PF', CPF_CNPJ_TITULAR: '***123456**', NOME_TITULAR: 'JOAO EXEMPLO DA SILVA (SINTETICO)' } },
+    ],
+    rejeicoes: [],
+  },
+  {
+    tipo: 'EXTRATO',
+    nome_arquivo: 'EXTRATO.txt',
+    tamanho_bytes: 1234,
+    linhas: [
+      lancamento(1, '2026-01-12', 150000, 'C'),
+      lancamento(2, '2026-01-13', 149500, 'D'),
+      lancamento(3, '2026-02-10', 100, 'C'),
+      lancamento(4, '2026-03-02', 80000, 'C'),
+      lancamento(5, '2026-03-02', 79900, 'D'),
+      // Linha 6: lançamento de agosto, depois do fim do período da decisão de exemplo.
+      lancamento(6, '2026-08-15', 5000, 'C'),
+      // Linha 8: conta que a decisão de exemplo não autoriza.
+      lancamento(8, '2026-02-20', 42000, 'D', '654321'),
+    ],
+    // A linha 7 do arquivo sintético tem a data ilegível: é rejeitada e não vira registro.
+    rejeicoes: [{ linha: 7, campo: 'DATA_LANCAMENTO', motivo: 'data inválida (esperado ddmmaaaa)' }],
+  },
+  {
+    tipo: 'ORIGEM_DESTINO',
+    nome_arquivo: 'ORIGEM_DESTINO.txt',
+    tamanho_bytes: 402,
+    linhas: [
+      { linha: 1, conta: '123456', data: '2026-01-12', campos: { CODIGO_CHAVE_EXTRATO: '1', VALOR_TRANSACAO: 150000, NUMERO_BANCO_OD: '998', NUMERO_CONTA_OD: '777001', CPF_CNPJ_OD: '90100001000100', NOME_PESSOA_OD: 'PREFEITURA SINTETICA DE EXEMPLOPOLIS' } },
+      { linha: 2, conta: '123456', data: '2026-01-13', campos: { CODIGO_CHAVE_EXTRATO: '2', VALOR_TRANSACAO: 149500, NUMERO_BANCO_OD: '998', NUMERO_CONTA_OD: '777002', CPF_CNPJ_OD: '***234567**', NOME_PESSOA_OD: 'MARIA EXEMPLO SOUZA (SINTETICO)' } },
+    ],
+    rejeicoes: [],
+  },
 ];
 
 export { H as hashSintetico };

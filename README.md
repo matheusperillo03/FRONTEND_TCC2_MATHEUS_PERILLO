@@ -57,6 +57,18 @@ Acompanham o back-end (contrato da API das tipologias L e da combinação). Cód
 - **Campos opcionais.** `grupo`, `sinal_fraco` e `peso` (catálogo e alerta) são opcionais na leitura: numa resposta antiga, o grupo é deduzido do código (T, L ou COMB) e nada mais muda.
 - **Simulado.** A ALFA tem um alerta L normal (L6) e um sinal fraco (L14), além de T1, T2 e T3. A combinação não é fixa: o simulado a calcula a cada execução, a partir dos alertas cuja primeira entidade é a mesma (simplificação), sem os descartados; com os mínimos padrão (2 tipologias, peso 2) saem duas, a da ALFA e a da ZETA. Os limiares, o `prefere_evitar` e o texto das políticas das L são ilustrativos (os reais vêm do back-end); CEPIM, CEAF e convênios não têm carga sintética (a coleta fecha sem capturas, com aviso).
 
+## Importação sob ordem judicial (RF10)
+
+Módulo **separado do dado aberto e desligado por padrão** no servidor. O leiaute é o da Instrução Normativa BCB nº 636/2025, Anexo I (arquivos AGENCIAS, CONTAS, TITULARES, EXTRATO e ORIGEM-DESTINO), e o protótipo só aceita dados sintéticos.
+
+- **A aba "Ordem judicial" só existe com o módulo ligado.** A tela do caso consulta `GET /importacao-judicial/estado` (só o token). Com `ativa: false`, ou se a consulta falhar, nada do módulo aparece: nem a aba, nem aviso, nem chamada às outras rotas.
+- **Faixa de aviso fixa:** dado sigiloso, só sintético neste protótipo, separado do dado aberto, fora do relatório, do grafo e das exportações; cada acesso fica na auditoria.
+- **Decisão antes de tudo.** O formulário da decisão (processo, decisão, juízo, data, período, contas, investigados e escopo) só aparece para o perfil em `perfis_autorizados` que possa escrever no caso; os demais veem a explicação. A tela confere os obrigatórios antes de enviar (inclusive ao menos uma conta completa e a ordem do período). As decisões são listadas com a marca "sigiloso: ordem judicial nº …".
+- **Importação só sob uma decisão escolhida.** Sem decisão registrada, ou sem escolher uma, o formulário de importação (diretório, origem, descrição) não existe. O resultado é o relatório de validação por arquivo: linhas, aceitas, rejeitadas, em quarentena, tamanho, SHA-256 e cada rejeição com linha, campo e motivo.
+- **Registros:** consulta feita a pedido (cada consulta é auditada), com filtro por tipo de arquivo, quarentena e decisão, e paginação de 50. Linha em quarentena vem destacada, com o selo e o motivo. CPF sempre como `***NNNNNN**` (`mascararCpfs` como última barreira; em campo de documento, 11 dígitos são CPF).
+- **Simulado: ligado por opção explícita.** `IMPORTACAO_JUDICIAL_DEMO.ativa` (`src/api/dadosSinteticos.ts`) vale `true`, e o `ClienteMock` aceita `importacaoJudicialAtiva` para ligar ou desligar; o cliente falso dos testes cria o simulado **desligado**, como o padrão do servidor. Para demonstrar: entre como `delegado.demo`, registre uma decisão e importe o diretório `caso-sintetico` (a única pasta que o simulado aceita). O caso começa sem decisão. Os nomes de campo dos arquivos, fora os do exemplo do contrato, são ilustrativos.
+- **Testes:** `src/telas/abas/AbaOrdemJudicial.test.tsx` (aba invisível com o módulo desligado ou com erro e visível com ele ligado; decisão obrigatória antes de importar; perfil não autorizado; obrigatórios; relatório de validação; filtros; quarentena destacada; CPF mascarado; auditoria), `src/api/clienteHttp.judicial.test.ts` (estado sem `X-Justificativa`, módulo desligado com 404, rotas, corpo, query e justificativa) e `src/api/clienteMock.judicial.test.ts` (regras do simulado e separação do dado aberto). Em 17/11/2026: 319 testes em 28 arquivos (eram 244 em 25).
+
 ## Stack
 
 React 19, TypeScript, Vite 7, Cytoscape.js (grafo), Vitest + Testing Library (testes), ESLint e o Padrão Digital de Governo (`@govbr-ds/core` 3.7.0) como base visual.
@@ -166,7 +178,7 @@ src/
     Conta.tsx           sessão atual e troca da própria senha
     Usuarios.tsx        administração de contas (perfil admin)
     Casos.tsx           listar e criar casos (com finalidade e prazo de retenção)
-    Caso.tsx            abas Coleta, Entidades, Grafo, Alertas, Sugestões da IA, Tipologias, Monitoramento, Equipe, Auditoria, Relatório
+    Caso.tsx            abas Coleta, Entidades, Grafo, Alertas, Sugestões da IA, Tipologias, Monitoramento, Equipe, Ordem judicial (só com o módulo do RF10 ligado), Auditoria, Relatório
     abas/               uma aba por arquivo
   test/                 setup do Vitest e cliente falso para componentes
 public/licencas/        licença MIT do @govbr-ds/core (vai para dist/)
@@ -250,12 +262,14 @@ Onde a seção 5 de `docs/mvp-escopo.md` não fixa o formato, o front assumiu o 
 - Os campos novos do horizonte 1 (`finalidade`, `retencao_ate` e `somente_leitura` no caso; `situacao`, `decisao`, `decisoes`, `politica_erro`, `prefere_evitar`, `tipologia_nome` e `ativo` no alerta; `coleta_id`, `situacao`, `tentativas`, `motivo` e o conector na coleta) seguem a tabela de rotas do README do back-end. Na interface eles são opcionais: um alerta sem `situacao` é tratado como pendente, e um caso sem `retencao_ate` aparece sem prazo.
 - `GET /casos/{id}/entidades/{eid}`: campos `fontes: [{captura_id, fonte?, url_ou_arquivo?}]` e `sugestoes: [{entidade_id, rotulo, identificador?, motivo, confianca?}]`.
 - Identificadores (`id`, `captura_id`, `eid`) podem ser string ou número; a interface compara por `String()`.
-- `X-Justificativa` é exigido pelo front em toda rota sob `/casos/{id}/...`, `/capturas/...` e `/auditoria...`; em `/me`, `GET /casos` e `POST /casos` ele é enviado se existir, mas não é exigido; em `GET /tipologias` ele nunca é enviado. Cabeçalhos HTTP só aceitam Latin-1: acentos do português passam; caracteres fora dessa faixa (travessão, emoji) viram `?`.
+- `X-Justificativa` é exigido pelo front em toda rota sob `/casos/{id}/...`, `/capturas/...` e `/auditoria...`; em `/me`, `GET /casos` e `POST /casos` ele é enviado se existir, mas não é exigido; em `GET /tipologias` e em `GET /importacao-judicial/estado` ele nunca é enviado. Cabeçalhos HTTP só aceitam Latin-1: acentos do português passam; caracteres fora dessa faixa (travessão, emoji) viram `?`.
 - Nós do tipo `contrato` no grafo: no simulado, o contrato liga fornecedor e órgão por duas arestas `contratado_por`. A interface desenha o que o back-end devolver.
 - `GET /auditoria/verificar` verifica a cadeia inteira (não há parâmetro de caso no contrato).
 - `GET /casos/{id}/relatorio` devolve o corpo bruto (JSON ou Markdown), que o front baixa como arquivo. No JSON, a aba Relatório lê `resumo` e `auditoria.entradas_do_caso` só para mostrar um resumo; para analistas o back-end deixa de enviar as entradas de auditoria, e a aba trata lista vazia, campo ausente ou nulo como "sem entradas", com um aviso.
 
 ## Limitações
+
+- Tipologias de lavagem e RF10: as suposições sobre o contrato estão marcadas no código (`SUPOSIÇÃO`) e resumidas aqui: o texto de "do caso" do CEPIM é genérico (o contrato não diz de quais entidades o servidor monta a lista); a lista de nomes do CEAF aceita até 100 itens; quem pode importar e consultar é decidido pelo servidor (a tela só exige, para o formulário da decisão, o perfil autorizado e papel de escrita no caso); as rotas de decisões e de importações aceitam o leitor no simulado, e a de registros exige investigador. A tela não foi conferida em navegador nesta entrega, só pelos testes de componente.
 
 - Sem roteamento por URL (navegação por estado); recarregar a página volta à lista de casos (token e justificativa ficam na sessão do navegador).
 - O grafo usa o *layout* `cose` embutido do Cytoscape; grafos grandes (RNF06) ficam para depois.
