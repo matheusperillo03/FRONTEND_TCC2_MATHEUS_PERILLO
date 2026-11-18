@@ -73,6 +73,8 @@ export interface CasoDetalhe extends Caso {
     tarefas_abertas?: number;
     sugestoes_ia_pendentes?: number;
   };
+  /** O que a última execução de cada tipologia deixou de avaliar por falta de dado (ex.: L7). */
+  avisos_tipologias?: string[];
 }
 
 /** Fontes de coleta. As quatro últimas vieram com o horizonte 2 (H19). */
