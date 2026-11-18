@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import type { CasoDetalhe, EntidadeResumo, EstadoImportacaoJudicial, IaEstado, Id } from '../api';
-import { Carregando, Mensagem, formatarDia } from '../componentes/basicos';
+import { Carregando, Mensagem, contar, formatarDia } from '../componentes/basicos';
 import { PapelProvider, papelNoCaso, rotuloPapel } from '../sessao/PapelContext';
 import { useSessao } from '../sessao/SessaoContext';
 import { useChamada } from '../sessao/useChamada';
@@ -133,14 +133,14 @@ export function Caso({ casoId, aoVoltar, abaInicial = 'coleta' }: CasoProps) {
                 {detalhe.dados.contagens && (
                   <>
                     {' '}
-                    · {detalhe.dados.contagens.entidades} entidades · {detalhe.dados.contagens.alertas} alertas · {detalhe.dados.contagens.capturas} capturas
-                    {detalhe.dados.contagens.monitoramentos !== undefined && <> · {detalhe.dados.contagens.monitoramentos} monitoramento(s) ativo(s)</>}
-                    {detalhe.dados.contagens.avisos_nao_lidos !== undefined && <> · {detalhe.dados.contagens.avisos_nao_lidos} aviso(s) não lido(s)</>}
-                    {detalhe.dados.contagens.membros !== undefined && <> · {detalhe.dados.contagens.membros} membro(s)</>}
-                    {detalhe.dados.contagens.tarefas_abertas !== undefined && <> · {detalhe.dados.contagens.tarefas_abertas} tarefa(s) aberta(s)</>}
-                    {detalhe.dados.contagens.anotacoes !== undefined && <> · {detalhe.dados.contagens.anotacoes} anotação(ões)</>}
+                    · {contar(detalhe.dados.contagens.entidades, 'entidade')} · {contar(detalhe.dados.contagens.alertas, 'alerta')} · {contar(detalhe.dados.contagens.capturas, 'captura')}
+                    {detalhe.dados.contagens.monitoramentos !== undefined && <> · {contar(detalhe.dados.contagens.monitoramentos, 'monitoramento ativo', 'monitoramentos ativos')}</>}
+                    {detalhe.dados.contagens.avisos_nao_lidos !== undefined && <> · {contar(detalhe.dados.contagens.avisos_nao_lidos, 'aviso não lido', 'avisos não lidos')}</>}
+                    {detalhe.dados.contagens.membros !== undefined && <> · {contar(detalhe.dados.contagens.membros, 'membro')}</>}
+                    {detalhe.dados.contagens.tarefas_abertas !== undefined && <> · {contar(detalhe.dados.contagens.tarefas_abertas, 'tarefa aberta', 'tarefas abertas')}</>}
+                    {detalhe.dados.contagens.anotacoes !== undefined && <> · {contar(detalhe.dados.contagens.anotacoes, 'anotação', 'anotações')}</>}
                     {detalhe.dados.contagens.sugestoes_ia_pendentes !== undefined && (
-                      <> · {detalhe.dados.contagens.sugestoes_ia_pendentes} sugestão(ões) de IA pendente(s)</>
+                      <> · {contar(detalhe.dados.contagens.sugestoes_ia_pendentes, 'sugestão de IA pendente', 'sugestões de IA pendentes')}</>
                     )}
                   </>
                 )}
@@ -194,19 +194,22 @@ export function Caso({ casoId, aoVoltar, abaInicial = 'coleta' }: CasoProps) {
                     {a.id === 'monitoramento' && avisosNaoLidos > 0 && (
                       <span className="br-tag small contagem-aba" data-testid="avisos-nao-lidos" title="Avisos de novidade não lidos">
                         {avisosNaoLidos}
-                        <span className="sr-only"> aviso(s) não lido(s)</span>
+                        <span className="sr-only"> {avisosNaoLidos === 1 ? 'aviso' : 'avisos'}</span>{' '}
+                        {avisosNaoLidos === 1 ? 'não lido' : 'não lidos'}
                       </span>
                     )}
                     {a.id === 'ia' && sugestoesIaPendentes > 0 && (
                       <span className="br-tag small contagem-aba" data-testid="sugestoes-ia-pendentes" title="Sugestões da IA pendentes de decisão">
                         {sugestoesIaPendentes}
-                        <span className="sr-only"> sugestão(ões) pendente(s)</span>
+                        <span className="sr-only"> {sugestoesIaPendentes === 1 ? 'sugestão' : 'sugestões'}</span>{' '}
+                        {sugestoesIaPendentes === 1 ? 'pendente' : 'pendentes'}
                       </span>
                     )}
                     {a.id === 'equipe' && tarefasAbertas > 0 && (
                       <span className="br-tag small contagem-aba" data-testid="tarefas-abertas" title="Tarefas abertas ou em andamento">
                         {tarefasAbertas}
-                        <span className="sr-only"> tarefa(s) aberta(s)</span>
+                        <span className="sr-only"> {tarefasAbertas === 1 ? 'tarefa' : 'tarefas'}</span>{' '}
+                        {tarefasAbertas === 1 ? 'aberta' : 'abertas'}
                       </span>
                     )}
                   </span>

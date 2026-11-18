@@ -28,7 +28,7 @@ describe('AbaAuditoria — verificação da cadeia (RNF02)', () => {
 
     resolver({ integra: true, entradas: 12, primeira_quebra: null });
     expect(await screen.findByTestId('resultado-cadeia')).toHaveTextContent('Cadeia íntegra');
-    expect(screen.getByText(/12 entrada\(s\) verificada\(s\)/)).toBeInTheDocument();
+    expect(screen.getByText(/12 entradas verificadas/)).toBeInTheDocument();
     expect(screen.queryByText(/primeira quebra/)).not.toBeInTheDocument();
   });
 

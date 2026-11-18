@@ -134,7 +134,7 @@ export function AbaRelatorio({ casoId, numeroProcedimento }: { casoId: Id; numer
           </dl>
           {!!resumo.coletasComFalha && (
             <Mensagem tipo="aviso">
-              {resumo.coletasComFalha} coleta(s) deste caso falharam: os dados podem estar incompletos. O relatório traz a
+              {resumo.coletasComFalha === 1 ? '1 coleta deste caso falhou' : `${resumo.coletasComFalha} coletas deste caso falharam`}: os dados podem estar incompletos. O relatório traz a
               fonte, as tentativas e o motivo de cada falha.
             </Mensagem>
           )}

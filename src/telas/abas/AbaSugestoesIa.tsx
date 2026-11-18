@@ -11,7 +11,7 @@ import {
   type SugestaoIa,
   type TextoCaptura,
 } from '../../api';
-import { Campo, Carregando, Hash, Mensagem, Tabela, TabelaChaveValor, formatarData } from '../../componentes/basicos';
+import { Campo, Carregando, Hash, Mensagem, Tabela, TabelaChaveValor, contar, formatarData } from '../../componentes/basicos';
 import { localizarTrecho } from '../../ia/localizarTrecho';
 import { mascararCpfs, mascararCpfsDoCampo } from '../../privacidade';
 import { usePapelNoCaso } from '../../sessao/PapelContext';
@@ -175,15 +175,15 @@ export function AbaSugestoesIa({ casoId, ia, capturaInicial = null, aoAbrirEntid
       {extracao.erro && <Mensagem tipo="erro">{extracao.erro}</Mensagem>}
       {extracao.dados && (
         <Mensagem tipo="ok">
-          Extração {String(extracao.dados.id)} concluída: {extracao.dados.itens_recebidos} item(ns) devolvido(s) pelo modelo,{' '}
-          {extracao.dados.itens_aceitos} virou(aram) sugestão pendente e {extracao.dados.itens_recusados} foi(ram) recusado(s)
-          automaticamente (veja os motivos em &quot;Execuções da extração&quot;).
+          Extração {String(extracao.dados.id)} concluída: {contar(extracao.dados.itens_recebidos, 'item devolvido', 'itens devolvidos')} pelo modelo,{' '}
+          {extracao.dados.itens_aceitos} {extracao.dados.itens_aceitos === 1 ? 'virou sugestão pendente' : 'viraram sugestões pendentes'} e{' '}
+          {extracao.dados.itens_recusados} {extracao.dados.itens_recusados === 1 ? 'foi recusado' : 'foram recusados'} automaticamente (veja os motivos em &quot;Execuções da extração&quot;).
         </Mensagem>
       )}
 
       <div className="painel-cabecalho">
         <p role="status" data-testid="resumo-sugestoes">
-          {contagem('pendente')} pendente(s) de decisão · {contagem('aceita')} aceita(s) · {contagem('recusada')} recusada(s)
+          {contar(contagem('pendente'), 'pendente')} de decisão · {contar(contagem('aceita'), 'aceita')} · {contar(contagem('recusada'), 'recusada')}
         </p>
         <Campo rotulo="Situação das sugestões" emLinha>
           <select value={filtro} onChange={(e) => setFiltro(e.target.value as typeof filtro)}>
@@ -376,7 +376,7 @@ export function DocumentoComTrecho({ sugestao, texto }: { sugestao: SugestaoIa; 
       <p className="mudo">
         Captura <code>{String(texto.captura_id)}</code> · SHA-256 <Hash valor={texto.sha256} /> · {texto.caracteres.toLocaleString('pt-BR')} caracteres ·{' '}
         {texto.formato === 'pdf'
-          ? `texto extraído do PDF${texto.paginas ? ` (${texto.paginas} página(s))` : ''}${texto.extrator ? ` por ${texto.extrator}` : ''}`
+          ? `texto extraído do PDF${texto.paginas ? ` (${contar(texto.paginas, 'página')})` : ''}${texto.extrator ? ` por ${texto.extrator}` : ''}`
           : texto.codificacao}
       </p>
       {texto.formato === 'pdf' && (
@@ -434,8 +434,8 @@ function ExecucaoIa({ extracao: e, aberta }: { extracao: ExtracaoIa; aberta: boo
     <details className="br-card execucao-ia" open={aberta} data-testid="execucao-ia">
       <summary>
         <code>{String(e.id)}</code> · captura <code>{String(e.captura_id)}</code> · {formatarData(e.iniciado_em)} · por {e.usuario} ·{' '}
-        <span className={`br-tag small situacao-coleta situacao-coleta-${e.situacao}`}>{e.situacao}</span> · {e.itens_aceitos} sugestão(ões), {e.itens_recusados}{' '}
-        recusado(s) automaticamente
+        <span className={`br-tag small situacao-coleta situacao-coleta-${e.situacao}`}>{e.situacao}</span> · {contar(e.itens_aceitos, 'sugestão', 'sugestões')},{' '}
+        {contar(e.itens_recusados, 'recusado')} automaticamente
       </summary>
       {e.motivo && <Mensagem tipo="erro">A extração falhou: {e.motivo}</Mensagem>}
       <dl className="tipologia-catalogo-dl">
@@ -450,7 +450,7 @@ function ExecucaoIa({ extracao: e, aberta }: { extracao: ExtracaoIa; aberta: boo
         <dd>{e.captura_sha256 ? <Hash valor={e.captura_sha256} /> : '—'}</dd>
         <dt>Itens</dt>
         <dd>
-          {e.itens_recebidos} devolvido(s) pelo modelo em {e.blocos} bloco(s) de texto
+          {contar(e.itens_recebidos, 'devolvido')} pelo modelo em {contar(e.blocos, 'bloco')} de texto
         </dd>
       </dl>
       <TabelaChaveValor dados={e.parametros} titulo="Parâmetros do modelo" />

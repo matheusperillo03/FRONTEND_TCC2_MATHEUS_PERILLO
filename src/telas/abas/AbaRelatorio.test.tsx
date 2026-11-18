@@ -52,7 +52,7 @@ describe('AbaRelatorio — relatório sem as entradas de auditoria (perfil anali
     await usuario.click(screen.getByRole('button', { name: 'Baixar JSON' }));
     expect(await screen.findByTestId('coletas-com-falha')).toHaveTextContent('5 (2)');
     expect(screen.getByTestId('alertas-pendentes')).toHaveTextContent('1');
-    expect(screen.getByText(/2 coleta\(s\) deste caso falharam/)).toBeInTheDocument();
+    expect(screen.getByText(/2 coletas deste caso falharam/)).toBeInTheDocument();
     // Relatório de versão anterior, sem esses campos: mostra traço e não avisa.
     expect(resumirRelatorioJson(JSON.stringify(BASE))).toMatchObject({ coletas: null, coletasComFalha: null, alertasPendentes: null });
   });

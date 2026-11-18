@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Aviso, EntidadeResumo, ExecucaoMonitoramentoResultado, Id, Monitoramento } from '../../api';
 import { SeletorEntidade } from '../../componentes/SeletorEntidade';
-import { Caixa, Campo, Carregando, EtiquetaTipo, Mensagem, Tabela, TabelaChaveValor, formatarData } from '../../componentes/basicos';
+import { Caixa, Campo, Carregando, EtiquetaTipo, Mensagem, Tabela, TabelaChaveValor, contar, formatarData } from '../../componentes/basicos';
 import { mascararCpfs } from '../../privacidade';
 import { useSessao } from '../../sessao/SessaoContext';
 import { useChamada } from '../../sessao/useChamada';
@@ -216,7 +216,7 @@ export function AbaMonitoramento({ casoId, entidadeInicial = null, aoMudar }: Ab
                         </div>
                         <div className="mudo quebra">
                           {m.ultima_execucao.origem === 'agendador' ? 'automática (agendador)' : `manual, por ${m.ultima_execucao.usuario}`} ·{' '}
-                          {m.ultima_execucao.coletas.length} recoleta(s) · {m.ultima_execucao.avisos_gerados} aviso(s)
+                          {contar(m.ultima_execucao.coletas.length, 'recoleta')} · {contar(m.ultima_execucao.avisos_gerados, 'aviso')}
                           {m.ultima_execucao.motivo ? ` · ${m.ultima_execucao.motivo}` : ''}
                         </div>
                       </>
@@ -290,8 +290,8 @@ function ResultadoExecucao({ execucao }: { execucao: ExecucaoMonitoramentoResult
   return (
     <Mensagem tipo={tipo}>
       <div>
-        Execução concluída: <strong>{ROTULOS_EXECUCAO[execucao.situacao] ?? execucao.situacao}</strong> · {execucao.coletas.length} recoleta(s) ·{' '}
-        {execucao.avisos_gerados} aviso(s) gerado(s).
+        Execução concluída: <strong>{ROTULOS_EXECUCAO[execucao.situacao] ?? execucao.situacao}</strong> · {contar(execucao.coletas.length, 'recoleta')} ·{' '}
+        {contar(execucao.avisos_gerados, 'aviso gerado', 'avisos gerados')}.
       </div>
       {execucao.motivo && <div>{execucao.motivo}</div>}
       {execucao.coletas.map((c, i) => (

@@ -48,7 +48,7 @@ describe('AbaColeta — falhas por fonte (RNF12) e versão do conector (RF07)', 
     expect(within(falha).getByText(/após 3 tentativas: PNCP respondeu HTTP 503/)).toBeInTheDocument();
     expect(within(falha).getByText('1.2.0')).toBeInTheDocument();
     expect(within(linhas[2]).getByText('sucesso')).toBeInTheDocument();
-    expect(screen.getByText(/1 coleta\(s\) deste caso falharam/)).toBeInTheDocument();
+    expect(screen.getByText(/1 coleta deste caso falhou/)).toBeInTheDocument();
   });
 
   it('ao fim de uma coleta que falha, mostra o erro e atualiza a tabela com a falha', async () => {
@@ -94,7 +94,7 @@ describe('AbaColeta — falhas por fonte (RNF12) e versão do conector (RF07)', 
     );
     await usuario.type(screen.getByLabelText('Diretório com os arquivos'), 'cnpj');
     await usuario.click(screen.getByRole('button', { name: 'Iniciar coleta' }));
-    expect(await screen.findByText(/em 3 tentativa\(s\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/em 3 tentativas/)).toBeInTheDocument();
     expect(screen.getByText(/última falha transitória: PNCP respondeu HTTP 503/)).toBeInTheDocument();
     expect(screen.getByText(/Aviso: Coleta interrompida/)).toBeInTheDocument();
   });
@@ -213,7 +213,7 @@ describe('ResultadoComparacao — o que mudou entre duas coletas (RF07)', () => 
       capturas_anteriores_sem_correspondente: [],
     };
     render(<ResultadoComparacao comparacao={comparacao} />);
-    expect(screen.getByText(/O conteúdo mudou: 1 captura\(s\) com hash diferente, 2 igual\(is\)/)).toBeInTheDocument();
+    expect(screen.getByText(/O conteúdo mudou: 1 captura com hash diferente, 2 iguais/)).toBeInTheDocument();
     expect(screen.getByText('DIFERENTE')).toBeInTheDocument();
     expect(screen.getByTitle('a'.repeat(64))).toBeInTheDocument();
     expect(screen.getByTitle('b'.repeat(64))).toBeInTheDocument();
@@ -395,8 +395,8 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
     const linha = linhas.find((l) => within(l).queryByText('fonte não configurada'))!;
     expect(within(linha).getByText('fonte não configurada')).toHaveClass('situacao-coleta-nao_configurado');
     expect(within(linha).getAllByText(/Portal da Transparência não configurado/)).toHaveLength(1);
-    expect(screen.getByText(/1 coleta\(s\) deste caso ficaram como "fonte não configurada"/)).toBeInTheDocument();
-    expect(screen.getByText(/1 coleta\(s\) deste caso falharam/)).toBeInTheDocument();
+    expect(screen.getByText(/1 coleta deste caso ficou como "fonte não configurada"/)).toBeInTheDocument();
+    expect(screen.getByText(/1 coleta deste caso falhou/)).toBeInTheDocument();
   });
 });
 

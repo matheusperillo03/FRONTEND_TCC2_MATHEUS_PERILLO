@@ -33,7 +33,7 @@ describe('AbaMonitoramento — entidades monitoradas (RF06, H18)', () => {
     expect(zeta).toHaveTextContent('17/11/2026'); // próxima execução
     expect(zeta).toHaveTextContent('16/11/2026'); // última execução
     expect(within(zeta).getByText('sucesso')).toBeInTheDocument();
-    expect(zeta).toHaveTextContent('automática (agendador) · 2 recoleta(s) · 2 aviso(s)');
+    expect(zeta).toHaveTextContent('automática (agendador) · 2 recoletas · 2 avisos');
     expect(within(zeta).getByText('portal_transparencia')).toBeInTheDocument();
     expect(within(zeta).getByText('cnpj_arquivo')).toBeInTheDocument();
     expect(zeta).toHaveTextContent('Acompanhar sanções e aditivos da contratada');
@@ -92,7 +92,7 @@ describe('AbaMonitoramento — entidades monitoradas (RF06, H18)', () => {
     await usuario.click(within(zeta).getByRole('button', { name: 'Executar agora' }));
 
     const resultado = (await screen.findByText(/Execução concluída:/)).closest('.br-message')!;
-    expect(resultado).toHaveTextContent('sucesso · 2 recoleta(s) · 0 aviso(s) gerado(s)');
+    expect(resultado).toHaveTextContent('sucesso · 2 recoletas · 0 avisos gerados');
     expect(resultado).toHaveTextContent('mesmo conteúdo da coleta anterior');
     await waitFor(() => expect(screen.getAllByTestId('monitoramento')[0]).toHaveTextContent('manual, por analista.demo'));
     expect(aoMudar).toHaveBeenCalled();
@@ -193,11 +193,11 @@ describe('Caso — abas do horizonte 2', () => {
 
   it('mostra no rótulo da aba Monitoramento os avisos não lidos e atualiza ao marcar um como lido', async () => {
     const usuario = renderizarCaso();
-    expect(await screen.findByTestId('avisos-nao-lidos')).toHaveTextContent('2 aviso(s) não lido(s)');
-    expect(screen.getByText(/1 monitoramento\(s\) ativo\(s\) · 2 aviso\(s\) não lido\(s\)/)).toBeInTheDocument();
+    expect(await screen.findByTestId('avisos-nao-lidos')).toHaveTextContent('2 avisos não lidos');
+    expect(screen.getByText(/1 monitoramento ativo · 2 avisos não lidos/)).toBeInTheDocument();
     const [primeiro] = await screen.findAllByTestId('aviso');
     await usuario.click(within(primeiro).getByRole('button', { name: 'Marcar como lido' }));
-    await waitFor(() => expect(screen.getByTestId('avisos-nao-lidos')).toHaveTextContent('1 aviso(s) não lido(s)'));
+    await waitFor(() => expect(screen.getByTestId('avisos-nao-lidos')).toHaveTextContent('1 aviso não lido'));
   });
 
   it('tem as abas Tipologias e Monitoramento, e o botão "Monitorar" da entidade leva ao formulário', async () => {

@@ -13,7 +13,7 @@ import type {
   RecoletaResultado,
   RecursoPortalTransparencia,
 } from '../../api';
-import { Campo, Carregando, Caixa, Hash, Mensagem, Radio, Tabela, formatarData } from '../../componentes/basicos';
+import { Caixa, Campo, Carregando, Hash, Mensagem, Radio, Tabela, contar, formatarData } from '../../componentes/basicos';
 import { cnpjValido, limparCnpj, mascaraDeCnpj, temFormaDeCnpj } from '../../cnpj';
 import { mascararCpfs } from '../../privacidade';
 import { useSessao } from '../../sessao/SessaoContext';
@@ -445,8 +445,8 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
       {resultado && resultado.situacao !== 'nao_configurado' && (
         <Mensagem tipo="ok">
           <div>
-            Coleta concluída: <strong>{resultado.entidades_novas}</strong> entidade(s) nova(s)
-            {resultado.tentativas !== undefined && <> em {resultado.tentativas} tentativa(s)</>}.
+            Coleta concluída: <strong>{resultado.entidades_novas}</strong> {resultado.entidades_novas === 1 ? 'entidade nova' : 'entidades novas'}
+            {resultado.tentativas !== undefined && <> em {contar(resultado.tentativas, 'tentativa')}</>}.
           </div>
           <div>
             Capturas registradas:{' '}
@@ -473,14 +473,14 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
         {historico.erro && <Mensagem tipo="erro">{historico.erro}</Mensagem>}
         {falhas > 0 && (
           <Mensagem tipo="aviso">
-            {falhas} coleta(s) deste caso falharam. Os dados do caso podem estar incompletos: veja a fonte e o motivo de cada
+            {falhas === 1 ? '1 coleta deste caso falhou' : `${falhas} coletas deste caso falharam`}. Os dados do caso podem estar incompletos: veja a fonte e o motivo de cada
             falha.
           </Mensagem>
         )}
         {naoConfiguradas > 0 && (
           <Mensagem tipo="info">
-            {naoConfiguradas} coleta(s) deste caso ficaram como "fonte não configurada" (sem capturas). Não são falhas; o
-            motivo de cada uma está na tabela.
+            {naoConfiguradas === 1 ? '1 coleta deste caso ficou' : `${naoConfiguradas} coletas deste caso ficaram`} como "fonte não configurada" (sem
+            capturas). Não {naoConfiguradas === 1 ? 'é falha' : 'são falhas'}; o motivo de cada uma está na tabela.
           </Mensagem>
         )}
         {historico.dados && coletas.length === 0 && <p className="vazio">Nenhuma coleta feita neste caso.</p>}
@@ -557,7 +557,7 @@ export function ResultadoComparacao({ comparacao }: { comparacao: ComparacaoCole
       <Mensagem tipo={comparacao.mesmo_conteudo ? 'ok' : 'aviso'}>
         {comparacao.mesmo_conteudo
           ? 'Mesmo conteúdo: todas as capturas têm o mesmo SHA-256 da coleta anterior.'
-          : `O conteúdo mudou: ${comparacao.capturas_diferentes} captura(s) com hash diferente, ${comparacao.capturas_iguais} igual(is)${semPar ? ` e ${semPar} sem correspondente` : ''}.`}{' '}
+          : `O conteúdo mudou: ${contar(comparacao.capturas_diferentes, 'captura')} com hash diferente, ${contar(comparacao.capturas_iguais, 'igual', 'iguais')}${semPar ? ` e ${semPar} sem correspondente` : ''}.`}{' '}
         As capturas anteriores continuam guardadas.
       </Mensagem>
       <p className="mudo">
@@ -593,7 +593,8 @@ export function ResultadoComparacao({ comparacao }: { comparacao: ComparacaoCole
                 {c.mesmo_hash ? '—' : c.campos_alterados.length ? c.campos_alterados.map((campo) => <code key={campo}>{campo} </code>) : 'nenhum campo interpretado'}
                 {!c.mesmo_hash && (
                   <div className="mudo">
-                    {c.registros.alterados} registro(s) alterado(s), {c.registros.adicionados} novo(s), {c.registros.removidos} removido(s)
+                    {contar(c.registros.alterados, 'registro alterado', 'registros alterados')}, {contar(c.registros.adicionados, 'novo')},{' '}
+                    {contar(c.registros.removidos, 'removido')}
                   </div>
                 )}
                 {c.observacao && !c.mesmo_hash && <div className="mudo">{c.observacao}</div>}
