@@ -213,9 +213,29 @@ describe('Entrada — sessão expirada e saída', () => {
 });
 
 describe('Entrada — token de desenvolvimento (secundário)', () => {
-  it('fica recolhido num <details>, fora do formulário principal, com o aviso de MODO_DEV', () => {
+  it('não aparece quando o servidor não está em modo de desenvolvimento, é antigo ou não responde', async () => {
+    const respostas: (() => Promise<{ status: string; modo_dev?: boolean }>)[] = [
+      async () => ({ status: 'ok', modo_dev: false }),
+      async () => ({ status: 'ok' }),
+      async () => {
+        throw new ErroApi(0, '/health', 'Falha de rede');
+      },
+    ];
+    for (const health of respostas) {
+      const chamada = vi.fn(health);
+      const { unmount } = renderizar({ health: chamada });
+      await waitFor(() => expect(chamada).toHaveBeenCalled());
+      // O login com usuário e senha continua lá; o acesso por token não é oferecido.
+      expect(await screen.findByRole('form', { name: 'Entrar com usuário e senha' })).toBeInTheDocument();
+      expect(screen.queryByText('Entrar com token de desenvolvimento')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Token de desenvolvimento')).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('com o servidor em modo de desenvolvimento, fica recolhido num <details>, fora do formulário principal, com o aviso de MODO_DEV', async () => {
     renderizar();
-    const campo = screen.getByLabelText('Token de desenvolvimento');
+    const campo = await screen.findByLabelText('Token de desenvolvimento');
     const detalhes = campo.closest('details')!;
     expect(detalhes).not.toHaveAttribute('open');
     expect(within(detalhes).getByText('Entrar com token de desenvolvimento')).toBeInTheDocument();
@@ -226,7 +246,7 @@ describe('Entrada — token de desenvolvimento (secundário)', () => {
   it('entra com um token válido e, ao sair, não chama o logout (token de desenvolvimento não tem sessão)', async () => {
     const { usuario, base } = renderizar();
     const logout = vi.spyOn(base, 'logout');
-    await usuario.click(screen.getByText('Entrar com token de desenvolvimento'));
+    await usuario.click(await screen.findByText('Entrar com token de desenvolvimento'));
     await usuario.type(screen.getByLabelText('Token de desenvolvimento'), 'dev-delegado');
     await usuario.click(screen.getByRole('button', { name: 'Entrar com token' }));
     expect(await screen.findByRole('button', { name: 'Sair' })).toBeInTheDocument();
@@ -238,7 +258,7 @@ describe('Entrada — token de desenvolvimento (secundário)', () => {
 
   it('token inválido mostra o erro de acesso, sem aviso de sessão expirada, e não fica guardado', async () => {
     const { usuario } = renderizar();
-    await usuario.type(screen.getByLabelText('Token de desenvolvimento'), 'token-sintetico-invalido');
+    await usuario.type(await screen.findByLabelText('Token de desenvolvimento'), 'token-sintetico-invalido');
     await usuario.click(screen.getByRole('button', { name: 'Entrar com token' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Acesso negado (401)');
     expect(screen.queryByText(/Sua sessão expirou/)).not.toBeInTheDocument();

@@ -357,7 +357,8 @@ export class ClienteMock implements ApiCliente {
 
   async health(): Promise<Saude> {
     await this.esperar();
-    return { status: 'ok' };
+    // O simulado aceita os tokens de demonstração, como o back-end em MODO_DEV=1.
+    return { status: 'ok', modo_dev: true };
   }
 
   async me(): Promise<Me> {

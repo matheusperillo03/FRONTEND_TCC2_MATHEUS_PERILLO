@@ -13,6 +13,8 @@ export type Id = string | number;
 
 export interface Saude {
   status: string;
+  /** O servidor aceita tokens de desenvolvimento (MODO_DEV=1). Ausente em servidor antigo: trate como `false`. */
+  modo_dev?: boolean;
 }
 
 export interface Me {

@@ -16,8 +16,10 @@ function mensagemDeLogin(erro: unknown): string {
  * também cadastra o segundo fator: a tela mostra o segredo e a URI `otpauth://`
  * como texto, para o aplicativo autenticador.
  *
- * O token de desenvolvimento continua disponível, recolhido: só funciona com
- * o back-end em MODO_DEV=1 (ou no modo simulado).
+ * O token de desenvolvimento fica recolhido e só é oferecido quando o servidor
+ * diz, em `/health`, que está em MODO_DEV=1 (o modo simulado responde o mesmo).
+ * Sem essa resposta (servidor fora do modo, antigo ou fora do ar), a tela não
+ * mostra o acesso por token, que o servidor recusaria.
  */
 export function Entrada() {
   const { cliente, config, token, definirToken, definirMe, aviso, definirAviso } = useSessao();
@@ -27,6 +29,8 @@ export function Entrada() {
   /** Resposta do login à espera do código. O token pendente fica só aqui, na memória. */
   const [pendente, setPendente] = useState<SessaoLogin | null>(null);
   const [tokenDev, setTokenDev] = useState('');
+  /** Só `true` depois de o servidor confirmar o modo de desenvolvimento. */
+  const [tokenDevDisponivel, setTokenDevDisponivel] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
   /** Dados do modo simulado: só existem no build feito com VITE_MOCK=1 (import dinâmico). */
@@ -53,6 +57,19 @@ export function Entrada() {
       ativo = false;
     };
   }, [config.modoMock]);
+
+  useEffect(() => {
+    let ativo = true;
+    cliente.health().then(
+      (saude) => {
+        if (ativo) setTokenDevDisponivel(saude.modo_dev === true);
+      },
+      () => undefined,
+    );
+    return () => {
+      ativo = false;
+    };
+  }, [cliente]);
 
   // Página recarregada com token guardado na sessão do navegador: confere no
   // servidor se a sessão ainda vale, em vez de pedir a senha de novo.
@@ -238,7 +255,7 @@ export function Entrada() {
               </div>
             )}
 
-            {!pendente && (
+            {!pendente && tokenDevDisponivel && (
               <details className="token-dev">
                 <summary>Entrar com token de desenvolvimento</summary>
                 <form
