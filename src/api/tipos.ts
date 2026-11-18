@@ -171,6 +171,10 @@ export interface ColetaResultado {
   captura_ids: Id[];
   entidades_novas: number;
   avisos?: string[];
+  /** A coleta parou antes de ler todas as páginas que a fonte informou: o caso ficou com dados parciais. */
+  incompleta?: boolean;
+  /** Páginas que a fonte disse faltar quando a coleta parou (`null` = não se sabe ou não se aplica). */
+  paginas_restantes?: number | null;
   coleta_id?: Id;
   situacao?: SituacaoColeta;
   /** Maior número de tentativas que uma operação da coleta precisou (0 = nada foi tentado). */
@@ -193,6 +197,8 @@ export interface ColetaRegistro {
   motivo: string;
   registros: number;
   avisos: string[];
+  /** Há aviso de coleta incompleta gravado (opcional por tolerância a servidor antigo). */
+  incompleta?: boolean;
   usuario: string;
   iniciado_em: string;
   concluido_em: string | null;

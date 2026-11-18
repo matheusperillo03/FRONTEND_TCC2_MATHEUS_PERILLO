@@ -125,7 +125,8 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
   const [cnpjOrgao, setCnpjOrgao] = useState('');
-  const [maxPaginas, setMaxPaginas] = useState(1);
+  // O servidor pede páginas de 500 contratos (máximo da API do PNCP); 5 páginas cobrem até 2.500.
+  const [maxPaginas, setMaxPaginas] = useState(5);
   // Portal da Transparência (H19)
   const [recurso, setRecurso] = useState<RecursoPortalTransparencia>('ceis');
   const [alvoSancoes, setAlvoSancoes] = useState<'do_caso' | 'lista'>('do_caso');
@@ -269,7 +270,10 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
             <Campo rotulo="CNPJ do órgão (opcional)">
               <input type="text" value={cnpjOrgao} onChange={(e) => setCnpjOrgao(mascaraDeCnpj(e.target.value))} placeholder="00.000.000/0000-00 (aceita letras)" maxLength={18} />
             </Campo>
-            <Campo rotulo="Máximo de páginas">
+            <Campo
+              rotulo="Máximo de páginas"
+              dica="Cada página traz até 500 contratos. Se o período tiver mais páginas, a coleta avisa que ficou incompleta."
+            >
               <input type="number" min={1} max={100} value={maxPaginas} onChange={(e) => setMaxPaginas(Number(e.target.value) || 1)} required />
             </Campo>
           </div>
@@ -442,6 +446,16 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
           <div>Motivo: {resultado.motivo || (resultado.avisos ?? [])[0] || 'o servidor não informou o motivo.'}</div>
         </Mensagem>
       )}
+      {resultado?.incompleta && (
+        <Mensagem tipo="aviso">
+          <strong>Coleta incompleta.</strong>{' '}
+          {resultado.paginas_restantes != null
+            ? `${contar(resultado.paginas_restantes, 'página')} da fonte ${resultado.paginas_restantes === 1 ? 'não foi coletada' : 'não foram coletadas'}`
+            : 'A fonte tem mais páginas do que as coletadas'}
+          : o caso está com dados parciais. Aumente o máximo de páginas ou reduza o período e colete de novo; não tire conclusões
+          de dados incompletos.
+        </Mensagem>
+      )}
       {resultado && resultado.situacao !== 'nao_configurado' && (
         <Mensagem tipo="ok">
           <div>
@@ -512,6 +526,7 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
                   </td>
                   <td>
                     <span className={`br-tag small situacao-coleta situacao-coleta-${c.situacao}`}>{ROTULOS_SITUACAO[c.situacao] ?? c.situacao}</span>
+                    {c.incompleta && <div className="mudo"><strong>incompleta</strong> (faltaram páginas)</div>}
                   </td>
                   <td>{c.tentativas}</td>
                   <td className="quebra">

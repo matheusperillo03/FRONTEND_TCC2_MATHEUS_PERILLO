@@ -97,6 +97,68 @@ describe('AbaColeta — falhas por fonte (RNF12) e versão do conector (RF07)', 
     expect(await screen.findByText(/em 3 tentativas/)).toBeInTheDocument();
     expect(screen.getByText(/última falha transitória: PNCP respondeu HTTP 503/)).toBeInTheDocument();
     expect(screen.getByText(/Aviso: Coleta interrompida/)).toBeInTheDocument();
+    // Sem `incompleta` na resposta, não há o destaque de coleta parcial.
+    expect(screen.queryByText('Coleta incompleta.')).not.toBeInTheDocument();
+  });
+
+  it('PNCP: o padrão é 5 páginas e a coleta que deixa páginas para trás avisa em destaque e no histórico', async () => {
+    const usuario = userEvent.setup();
+    const aviso = "Coleta incompleta: a coleta parou no limite de max_paginas=5; 5 página(s) lida(s) e 2 página(s) restante(s) NÃO coletada(s).";
+    const iniciarColeta = vi.fn(async () => ({
+      captura_ids: ['cap-81', 'cap-82'],
+      entidades_novas: 40,
+      avisos: [aviso],
+      incompleta: true,
+      paginas_restantes: 2,
+      coleta_id: 'col-81',
+      situacao: 'sucesso' as const,
+      tentativas: 1,
+      motivo: '',
+      conector_nome: 'pncp',
+      conector_versao: '1.4.0',
+    }));
+    const listarColetas = vi.fn(async () => [
+      {
+        id: 'col-81',
+        fonte: 'pncp',
+        parametros: { dataInicial: '20260101', dataFinal: '20260331', max_paginas: 5 },
+        conector_nome: 'pncp',
+        conector_versao: '1.4.0',
+        situacao: 'sucesso' as const,
+        tentativas: 1,
+        motivo: '',
+        registros: 2500,
+        avisos: [aviso],
+        incompleta: true,
+        usuario: 'ana',
+        iniciado_em: '2026-11-18T12:00:00Z',
+        concluido_em: '2026-11-18T12:00:09Z',
+        recoleta_de: null,
+        captura_ids: ['cap-81', 'cap-82'],
+      },
+    ]);
+    render(
+      <SessaoProvider cliente={clienteFalso({ iniciarColeta, listarColetas })}>
+        <AbaColeta casoId="caso-1" />
+      </SessaoProvider>,
+    );
+    await usuario.click(screen.getByRole('radio', { name: 'PNCP — API de consulta de contratos' }));
+    expect(screen.getByLabelText('Máximo de páginas')).toHaveValue(5);
+    expect(screen.getByText(/Cada página traz até 500 contratos/)).toBeInTheDocument();
+    await usuario.type(screen.getByLabelText('Data inicial (AAAAMMDD)'), '20260101');
+    await usuario.type(screen.getByLabelText('Data final (AAAAMMDD)'), '20260331');
+    await usuario.click(screen.getByRole('button', { name: 'Iniciar coleta' }));
+
+    // O formulário não manda `tamanhoPagina`: vale o padrão do servidor (500, o máximo da API).
+    expect(iniciarColeta).toHaveBeenCalledWith('caso-1', {
+      fonte: 'pncp',
+      parametros: { dataInicial: '20260101', dataFinal: '20260331', max_paginas: 5 },
+    });
+    const destaque = (await screen.findByText('Coleta incompleta.')).closest('.br-message');
+    expect(destaque).toHaveClass('warning');
+    expect(destaque).toHaveTextContent('2 páginas da fonte não foram coletadas: o caso está com dados parciais.');
+    const linha = await screen.findByTestId('coleta');
+    expect(within(linha).getByText('incompleta')).toBeInTheDocument();
   });
 
   it('recoleta e mostra que o conteúdo é o mesmo (hash igual), sem apagar a coleta anterior', async () => {
