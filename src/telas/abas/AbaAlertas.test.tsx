@@ -60,6 +60,44 @@ describe('AbaAlertas — severidade (RF14) e decisão do investigador (RF12)', (
   });
 });
 
+describe('AbaAlertas — avisos da execução das tipologias', () => {
+  const AVISO = 'L7 não avaliada para 91900031: 2 registro(s) do QSA sem qualificação.';
+
+  function renderizar(avisosTipologias?: string[], aoExecutar?: () => void) {
+    return render(
+      <SessaoProvider cliente={clienteFalso()}>
+        <AbaAlertas casoId="caso-1" avisosTipologias={avisosTipologias} aoExecutar={aoExecutar} />
+      </SessaoProvider>,
+    );
+  }
+
+  it('mostra cada aviso do caso; sem avisos (lista vazia ou ausente), nada aparece', async () => {
+    const { rerender } = renderizar([AVISO, 'L7 não avaliada para 91900032: 1 registro(s) do QSA sem qualificação.']);
+    await screen.findByRole('button', { name: 'Executar tipologias' });
+    const avisos = screen.getByTestId('avisos-tipologias');
+    expect(avisos).toHaveTextContent('2 avisos da última execução das tipologias');
+    expect(within(avisos).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      AVISO,
+      'L7 não avaliada para 91900032: 1 registro(s) do QSA sem qualificação.',
+    ]);
+    for (const vazio of [[], undefined]) {
+      rerender(
+        <SessaoProvider cliente={clienteFalso()}>
+          <AbaAlertas casoId="caso-1" avisosTipologias={vazio} />
+        </SessaoProvider>,
+      );
+      await waitFor(() => expect(screen.queryByTestId('avisos-tipologias')).not.toBeInTheDocument());
+    }
+  });
+
+  it('depois de executar as tipologias, pede a recarga do caso (de onde vêm os avisos)', async () => {
+    const aoExecutar = vi.fn();
+    renderizar(undefined, aoExecutar);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Executar tipologias' }));
+    await waitFor(() => expect(aoExecutar).toHaveBeenCalledTimes(1));
+  });
+});
+
 describe('AbaAlertas — execução com tipologias e limiares do horizonte 2', () => {
   /** O botão só fica disponível depois da carga inicial da lista. */
   async function renderizar() {

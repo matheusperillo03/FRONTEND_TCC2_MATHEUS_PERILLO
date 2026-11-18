@@ -233,7 +233,7 @@ export function Caso({ casoId, aoVoltar, abaInicial = 'coleta' }: CasoProps) {
           />
         )}
         {aba === 'grafo' && <AbaGrafo casoId={casoId} centroInicial={centroGrafo} aoAbrirEntidade={abrirEntidade} />}
-        {aba === 'alertas' && <AbaAlertas casoId={casoId} aoAbrirEntidade={abrirEntidade} aoExecutar={recarregar} />}
+        {aba === 'alertas' && <AbaAlertas casoId={casoId} aoAbrirEntidade={abrirEntidade} aoExecutar={recarregar} avisosTipologias={detalhe.dados?.avisos_tipologias} />}
         {aba === 'ia' && (
           <AbaSugestoesIa
             key={capturaIa == null ? 'sem-captura' : String(capturaIa)}

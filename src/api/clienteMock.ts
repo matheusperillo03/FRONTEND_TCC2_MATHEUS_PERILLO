@@ -420,6 +420,8 @@ export class ClienteMock implements ApiCliente {
         tarefas_abertas: this.tarefas(casoId).filter((t) => SITUACOES_ABERTAS.has(t.situacao)).length,
         sugestoes_ia_pendentes: this.sugestoesIa(casoId).filter((s) => s.situacao === 'pendente').length,
       },
+      // Nos dados sintéticos da demonstração nenhuma tipologia deixa de avaliar empresa.
+      avisos_tipologias: [],
     };
   }
 

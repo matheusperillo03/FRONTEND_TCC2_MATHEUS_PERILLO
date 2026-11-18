@@ -21,6 +21,8 @@ export interface AbaAlertasProps {
   casoId: Id;
   aoAbrirEntidade?: (id: Id) => void;
   aoExecutar?: () => void;
+  /** Avisos da última execução (`avisos_tipologias` do caso): o que ficou sem avaliação. */
+  avisosTipologias?: string[];
 }
 
 /** Campo vazio = usa a configuração em vigor; preenchido, precisa ser número na faixa do back-end. */
@@ -67,7 +69,7 @@ const LIMIARES_LAVAGEM: LimiarLavagem[] = [
 const ehCombinacao = (a: Alerta) => grupoDaTipologia(a.tipologia, a.grupo) === 'combinacao';
 const ehSinalFraco = (a: Alerta) => a.sinal_fraco === true && !ehCombinacao(a);
 
-export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar }: AbaAlertasProps) {
+export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologias }: AbaAlertasProps) {
   const { cliente } = useSessao();
   const lista = useChamada<Alerta[]>();
   const [rotulos, setRotulos] = useState<Record<string, string>>({});
@@ -289,6 +291,18 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar }: AbaAlertasPr
       </form>
       {lista.carregando && <Carregando />}
       {lista.erro && <Mensagem tipo="erro">{lista.erro}</Mensagem>}
+      {avisosTipologias && avisosTipologias.length > 0 && (
+        <div data-testid="avisos-tipologias">
+          <Mensagem tipo="aviso">
+            {contar(avisosTipologias.length, 'aviso')} da última execução das tipologias (o que ficou sem avaliação por falta de dado):
+            <ul>
+              {avisosTipologias.map((aviso, i) => (
+                <li key={i}>{aviso}</li>
+              ))}
+            </ul>
+          </Mensagem>
+        </div>
+      )}
       {todos.length > 0 && (
         <p role="status" data-testid="resumo-situacao">
           {contar(contagem('pendente'), 'pendente')} de análise · {contar(contagem('confirmado'), 'confirmado')} ·{' '}
