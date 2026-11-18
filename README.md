@@ -115,14 +115,16 @@ O front chama a API em `VITE_API_URL` (padrão `http://localhost:8100`). O back-
 npm run build             # tsc -b && vite build
 npm run lint              # eslint
 npm test -- --run         # vitest
-npm audit --audit-level=high   # falha com vulnerabilidade alta ou crítica nas dependências
+node scripts/auditoria.mjs     # npm audit: falha com vulnerabilidade alta ou crítica fora das exceções
 ```
 
 ### Pipeline de integração (RNF11, H16)
 
-`.github/workflows/ci.yml` roda a cada `push` e `pull_request`: `npm ci` (versões travadas no `package-lock.json`), `eslint`, `vitest`, `build`, a conferência de que os *tokens* do modo simulado não entraram em `dist/` e `npm audit --audit-level=high`. Não há `continue-on-error`: qualquer etapa que falhe derruba o pipeline.
+`.github/workflows/ci.yml` roda a cada `push` e `pull_request`: `npm ci` (versões travadas no `package-lock.json`), `eslint`, `vitest`, `build`, a conferência de que os *tokens* do modo simulado não entraram em `dist/` e `node scripts/auditoria.mjs`. Não há `continue-on-error`: qualquer etapa que falhe derruba o pipeline.
 
 Na data desta versão, `npm audit --omit=dev` não aponta nada nas dependências que vão para o navegador. Nas dependências de desenvolvimento há 9 avisos de severidade moderada, todos pela mesma causa (`minimatch`, usada pelo `eslint` e pelo `typescript-eslint`; [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)). Eles ficam abaixo do nível que barra o pipeline e não chegam ao *bundle*; `npm audit fix` os resolve quando for conveniente atualizar o `package-lock.json`.
+
+**Exceção da auditoria (18/11/2026).** `scripts/auditoria.mjs` roda o `npm audit` e falha com vulnerabilidade alta ou crítica, menos as listadas em `auditoria-excecoes.json`, cada uma com o motivo. A única exceção é o [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf) (`picomatch` até 4.0.7, ReDoS com padrão de arquivo malicioso): só entra no desenvolvimento, pelo `vite` e pelo `vitest`, os padrões vêm da configuração do projeto e ainda não há versão corrigida. Quando a correção sair e o aviso sumir da auditoria, o script falha até a exceção ser removida.
 
 ## Docker
 

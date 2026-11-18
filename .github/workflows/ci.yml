@@ -10,7 +10,7 @@
 #   npm run lint
 #   npm test -- --run
 #   npm run build
-#   npm audit --audit-level=high
+#   node scripts/auditoria.mjs
 name: CI
 
 on:
@@ -54,5 +54,5 @@ jobs:
         run: |
           ! grep -rIlE "dev-(delegado|agente|analista|admin)" dist
 
-      - name: Auditoria das dependências (falha com vulnerabilidade alta ou crítica)
-        run: npm audit --audit-level=high
+      - name: Auditoria das dependências (falha com vulnerabilidade alta ou crítica fora das exceções)
+        run: node scripts/auditoria.mjs
