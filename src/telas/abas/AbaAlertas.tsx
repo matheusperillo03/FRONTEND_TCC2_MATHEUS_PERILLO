@@ -154,6 +154,10 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar }: AbaAlertasPr
   const alertas = todos.filter(
     (a) => (filtro === 'todos' || a.tipologia === filtro) && (situacao === 'todas' || (a.situacao ?? 'pendente') === situacao),
   );
+  // Totais sem filtro, para conferir com o número do cabeçalho do caso (que conta todos os alertas).
+  const totalCombinacoes = todos.filter(ehCombinacao).length;
+  const totalSinaisFracos = todos.filter(ehSinalFraco).length;
+  const totalInativos = todos.filter((a) => a.ativo === false).length;
   // Três blocos: a combinação em destaque, os alertas de cada tipologia e, à parte, os sinais fracos.
   const combinacoes = alertas.filter(ehCombinacao);
   const sinaisFracos = alertas.filter(ehSinalFraco);
@@ -289,6 +293,15 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar }: AbaAlertasPr
       </form>
       {lista.carregando && <Carregando />}
       {lista.erro && <Mensagem tipo="erro">{lista.erro}</Mensagem>}
+      {todos.length > 0 && (
+        <p data-testid="resumo-total">
+          <strong>{contar(todos.length, 'alerta')} no caso</strong> (o mesmo número do cabeçalho): {totalCombinacoes} de combinação,{' '}
+          {todos.length - totalCombinacoes - totalSinaisFracos} por tipologia e {contar(totalSinaisFracos, 'sinal fraco', 'sinais fracos')}
+          {totalSinaisFracos > 0 && <> ({totalSinaisFracos === 1 ? 'recolhido' : 'recolhidos'} no fim da lista)</>}.
+          {totalInativos > 0 && <> Desse total, {totalInativos} com decisão não {totalInativos === 1 ? 'foi detectado' : 'foram detectados'} na última execução.</>}
+          {alertas.length < todos.length && <> Com os filtros escolhidos: {alertas.length}.</>}
+        </p>
+      )}
       {todos.length > 0 && (
         <p role="status" data-testid="resumo-situacao">
           {contar(contagem('pendente'), 'pendente')} de análise · {contar(contagem('confirmado'), 'confirmado')} ·{' '}
