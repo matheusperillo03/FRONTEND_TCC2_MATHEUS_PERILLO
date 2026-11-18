@@ -237,11 +237,55 @@ describe('RF04: cartão de alerta das tipologias de lavagem (L)', () => {
     expect(screen.getByText('L6 — Porte ou regime incompatível com o valor contratado')).toBeInTheDocument();
     expect(screen.getByText(L6.motivo)).toBeInTheDocument();
     expect(screen.getByText(/^Prefere evitar falso positivo: compara a soma contratada/)).toBeInTheDocument();
-    expect(screen.getByText('limite_anual')).toBeInTheDocument();
+    expect(screen.getByText('regime')).toBeInTheDocument();
     const tabela = screen.getByRole('table', { name: /Evidências do alerta/ });
     for (const ev of L6.evidencias) expect(within(tabela).getByTitle(ev.sha256)).toBeInTheDocument();
     expect(screen.getByTestId('peso-alerta')).toHaveTextContent('peso na combinação: 1');
     expect(screen.queryByTestId('selo-sinal-fraco')).not.toBeInTheDocument();
+  });
+
+  it('L6: o cartão mostra o limite legal, os meses, o excesso, a faixa com o dispositivo e os anos não avaliados', () => {
+    renderizar(L6);
+    const secao = screen.getByRole('region', { name: /Limite legal e excesso/ });
+    expect(within(secao).getByTestId('l6-soma')).toHaveTextContent(/R\$\s1\.200\.000,00/);
+    expect(within(secao).getByTestId('l6-limite')).toHaveTextContent(/R\$\s360\.000,00/);
+    expect(within(secao).getByTestId('l6-limite')).toHaveTextContent('Lei Complementar nº 123/2006, art. 3º, I');
+    expect(within(secao).getByTestId('l6-limite')).not.toHaveTextContent('limite anual:');
+    expect(within(secao).getByTestId('l6-meses')).toHaveTextContent('não é o ano de início de atividade');
+    expect(within(secao).getByTestId('l6-excesso')).toHaveTextContent(/R\$\s840\.000,00/);
+    expect(within(secao).getByTestId('l6-faixa')).toHaveTextContent('a lei não prevê faixa de 20% para este regime (LC nº 123/2006, art. 3º, § 7º)');
+    expect(within(secao).getByTestId('l6-anos-nao-avaliados')).toHaveTextContent('nenhum');
+    // O que está na seção não se repete na tabela de parâmetros; a tolerância antiga não existe mais.
+    for (const chave of ['limite_legal', 'excesso', 'faixa_excesso', 'dispositivo_excesso', 'anos_nao_avaliados', 'l6_tolerancia_transicao']) {
+      expect(screen.queryByText(chave)).not.toBeInTheDocument();
+    }
+    expect(screen.getByText('contratos')).toBeInTheDocument();
+  });
+
+  it('L6 de MEI no ano de início: limite proporcional, meses, faixa de até 20% e anos de fora', () => {
+    renderizar({
+      ...L6,
+      parametros: {
+        regime: 'mei', ano: 2027, soma_contratada: 30000, limite_anual: 110000, limite_legal: 27500.01,
+        fonte_limite: 'LC nº 238/2026, art. 2º, caput e parágrafo único', meses_no_ano_de_inicio: 3,
+        dispositivo_proporcional: 'LC nº 123/2006, art. 18-A, § 2º', excesso: 2499.99, faixa_excesso: 'ate_20',
+        dispositivo_excesso: 'LC nº 123/2006, art. 18-A, § 7º, IV, a', anos_nao_avaliados: [2010, 2011], contratos: 1,
+      },
+    });
+    expect(screen.getByTestId('l6-limite')).toHaveTextContent(/R\$\s27\.500,01 \(limite anual: R\$\s110\.000,00\)/);
+    expect(screen.getByTestId('l6-meses')).toHaveTextContent('3 meses, contada a fração de mês como mês inteiro (LC nº 123/2006, art. 18-A, § 2º)');
+    expect(screen.getByTestId('l6-excesso')).toHaveTextContent(/R\$\s2\.499,99/);
+    expect(screen.getByTestId('l6-faixa')).toHaveTextContent('até 20% do limite (LC nº 123/2006, art. 18-A, § 7º, IV, a)');
+    expect(screen.getByTestId('l6-anos-nao-avaliados')).toHaveTextContent('2010, 2011 (limites não conferidos no texto legal)');
+  });
+
+  it('L6 acima de 20% e alerta antigo sem os parâmetros novos: a faixa aparece e o cartão antigo não ganha a seção', () => {
+    const { unmount } = renderizar({ ...L6, parametros: { ...L6.parametros, regime: 'epp', faixa_excesso: 'acima_de_20', dispositivo_excesso: 'LC nº 123/2006, art. 3º, § 9º' } });
+    expect(screen.getByTestId('l6-faixa')).toHaveTextContent('acima de 20% do limite (LC nº 123/2006, art. 3º, § 9º)');
+    unmount();
+    renderizar({ ...L6, parametros: { ano: '2026', limite_anual: 360000, soma_contratada: 1200000 } });
+    expect(screen.queryByRole('region', { name: /Limite legal e excesso/ })).not.toBeInTheDocument();
+    expect(screen.getByText('limite_anual')).toBeInTheDocument();
   });
 
   it('RF12: o alerta L avisa no alto que é pista, não conclusão, e a frase não se repete na decisão', () => {

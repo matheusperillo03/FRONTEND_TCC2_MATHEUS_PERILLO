@@ -350,7 +350,15 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
     const l6 = catalogo.find((t) => t.codigo === 'L6')!;
     const limites = l6.parametros.find((p) => p.nome === 'l6_limites')!;
     expect(limites.por_execucao).toBe(false);
-    expect(limites.valor).toMatchObject({ mei: { '2026': { anual: 81000, mensal_inicio: 6750 }, '2027': { anual: 110000 }, '2028': { anual: 140000 } }, me: { anual: 360000 }, epp: { anual: 4800000 }, mei_ate: '2026', mei_a_partir: '2028' });
+    expect(limites.valor).toMatchObject({
+      mei: { '2012': { anual: 60000, mensal_inicio: 5000 }, '2018': { anual: 81000, mensal_inicio: 6750 }, '2027': { anual: 110000 }, '2028': { anual: 140000 } },
+      me: { anual: 360000 },
+      epp: { anual: 4800000 },
+      me_por_ano: { '2012': { anual: 360000 } },
+      epp_por_ano: { '2012': { anual: 3600000 }, '2018': { anual: 4800000 } },
+      primeiro_ano: 2012,
+    });
+    expect(l6.parametros.map((p) => p.nome)).toEqual(['l6_limites']);
     const comb = catalogo.find((t) => t.codigo === 'COMB')!;
     expect(comb.parametros.map((p) => [p.nome, p.por_execucao])).toEqual([['comb_minimo_tipologias', true], ['comb_peso_minimo', true], ['comb_pesos', false]]);
     expect(comb.parametros[2].valor).toMatchObject({ T1: 1, L8: 0, L14: 0.5, COMB: 0 });

@@ -33,58 +33,71 @@ function lerLimitesDispensa(valor: unknown): [string, LimiteDispensa][] | null {
 
 const ehObjeto = (valor: unknown): valor is Record<string, unknown> => !!valor && typeof valor === 'object' && !Array.isArray(valor);
 
-/** `l6_limites`: `{mei: {"2026": {anual, mensal_inicio, fonte}}, me: {...}, epp: {...}, mei_ate, mei_a_partir}`. */
+/** `l6_limites`: `{mei, me_por_ano, epp_por_ano: {"2018": {anual, mensal_inicio?, fonte}}, me, epp, primeiro_ano}`. */
 function lerLimitesL6(valor: unknown): LimitesL6 | null {
   if (!ehObjeto(valor)) return null;
   const limites = valor as LimitesL6;
-  if (!ehObjeto(limites.mei) && !ehObjeto(limites.me) && !ehObjeto(limites.epp)) return null;
+  if (![limites.mei, limites.me, limites.epp, limites.me_por_ano, limites.epp_por_ano].some(ehObjeto)) return null;
   return limites;
 }
 
-/** Tabela dos limites de receita da L6: uma linha por ano do MEI e uma para a ME e a EPP, sempre com a fonte. */
-function TabelaLimitesL6({ limites }: { limites: LimitesL6 }) {
-  const anosMei = Object.entries(ehObjeto(limites.mei) ? limites.mei : {})
+/** Linhas de uma tabela por ano, em ordem, com o período em que cada uma vale (até a linha seguinte). */
+function linhasPorAno(tabela: unknown): { periodo: string; limite: LimiteReceita }[] {
+  const anos = Object.entries(ehObjeto(tabela) ? tabela : {})
     .filter((par): par is [string, LimiteReceita] => ehObjeto(par[1]))
     .sort(([a], [b]) => a.localeCompare(b));
-  const candidatos: [string, LimiteReceita | undefined][] = [
-    ['Microempresa (ME)', limites.me],
-    ['Empresa de pequeno porte (EPP)', limites.epp],
+  return anos.map(([ano, limite], i) => {
+    const seguinte = anos[i + 1]?.[0];
+    if (seguinte === undefined) return { periodo: `a partir de ${ano}`, limite };
+    const ultimo = Number(seguinte) - 1;
+    return { periodo: Number.isFinite(ultimo) && ultimo > Number(ano) ? `${ano} a ${ultimo}` : ano, limite };
+  });
+}
+
+/** Tabela dos limites de receita da L6: uma linha por regime ou porte e por período, sempre com a fonte. */
+function TabelaLimitesL6({ limites }: { limites: LimitesL6 }) {
+  // Resposta antiga, sem a tabela por ano: mostra a linha atual da ME e da EPP.
+  const dePorte = (porAno: unknown, atual: LimiteReceita | undefined) => {
+    const linhas = linhasPorAno(porAno);
+    return linhas.length > 0 || !ehObjeto(atual) ? linhas : [{ periodo: 'todos', limite: atual }];
+  };
+  const grupos: { rotulo: string; testid: string; linhas: { periodo: string; limite: LimiteReceita }[] }[] = [
+    { rotulo: 'MEI', testid: 'limite-mei', linhas: linhasPorAno(limites.mei) },
+    { rotulo: 'Microempresa (ME)', testid: 'limite-porte', linhas: dePorte(limites.me_por_ano, limites.me) },
+    { rotulo: 'Empresa de pequeno porte (EPP)', testid: 'limite-porte', linhas: dePorte(limites.epp_por_ano, limites.epp) },
   ];
-  const portes = candidatos.filter((par): par is [string, LimiteReceita] => ehObjeto(par[1]));
-  /** A tabela cobre os anos antes do primeiro (`mei_ate`) e depois do último (`mei_a_partir`). */
-  const rotuloDoAno = (ano: string) => (ano === limites.mei_ate ? `até ${ano}` : ano === limites.mei_a_partir ? `a partir de ${ano}` : ano);
   return (
-    <Tabela rotulo="Limites de receita por regime ou porte" className="tabela-limites">
-      <thead>
-        <tr>
-          <th scope="col">Regime ou porte</th>
-          <th scope="col">Ano-calendário</th>
-          <th scope="col">Limite anual</th>
-          <th scope="col">Por mês, no ano de início</th>
-          <th scope="col">Fonte</th>
-        </tr>
-      </thead>
-      <tbody>
-        {anosMei.map(([ano, limite]) => (
-          <tr key={`mei-${ano}`} data-testid="limite-mei">
-            <th scope="row">MEI</th>
-            <td>{rotuloDoAno(ano)}</td>
-            <td>{formatarReais(limite.anual)}</td>
-            <td>{limite.mensal_inicio === undefined ? '—' : formatarReais(limite.mensal_inicio)}</td>
-            <td className="quebra">{limite.fonte || '—'}</td>
+    <>
+      <Tabela rotulo="Limites de receita por regime ou porte" className="tabela-limites">
+        <thead>
+          <tr>
+            <th scope="col">Regime ou porte</th>
+            <th scope="col">Ano-calendário</th>
+            <th scope="col">Limite anual</th>
+            <th scope="col">Por mês, no ano de início</th>
+            <th scope="col">Fonte</th>
           </tr>
-        ))}
-        {portes.map(([rotulo, limite]) => (
-          <tr key={rotulo} data-testid="limite-porte">
-            <th scope="row">{rotulo}</th>
-            <td>todos</td>
-            <td>{formatarReais(limite.anual)}</td>
-            <td>—</td>
-            <td className="quebra">{limite.fonte || '—'}</td>
-          </tr>
-        ))}
-      </tbody>
-    </Tabela>
+        </thead>
+        <tbody>
+          {grupos.flatMap(({ rotulo, testid, linhas }) =>
+            linhas.map(({ periodo, limite }) => (
+              <tr key={`${rotulo}-${periodo}`} data-testid={testid}>
+                <th scope="row">{rotulo}</th>
+                <td>{periodo}</td>
+                <td>{formatarReais(limite.anual)}</td>
+                <td>{limite.mensal_inicio === undefined ? 'limite anual × meses ÷ 12' : formatarReais(limite.mensal_inicio)}</td>
+                <td className="quebra">{limite.fonte || '—'}</td>
+              </tr>
+            )),
+          )}
+        </tbody>
+      </Tabela>
+      {typeof limites.primeiro_ano === 'number' && (
+        <p className="mudo" data-testid="limites-primeiro-ano">
+          Contratos anteriores a {limites.primeiro_ano} não são avaliados: os limites desses anos não foram conferidos no texto legal.
+        </p>
+      )}
+    </>
   );
 }
 
