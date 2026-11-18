@@ -1,0 +1,7 @@
+{
+  "GHSA-fc5q-39xc-vjpf": {
+    "pacote": "picomatch",
+    "motivo": "ReDoS só com padrão de arquivo malicioso; picomatch só entra no desenvolvimento (vite, vitest) e os padrões vêm da nossa configuração. Sem versão corrigida em 18/11/2026.",
+    "revisar": "remover assim que sair versão corrigida"
+  }
+}
