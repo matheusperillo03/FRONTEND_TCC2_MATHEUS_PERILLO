@@ -13,7 +13,7 @@ import {
   type RegistroJudicial,
   type TipoArquivoJudicial,
 } from '../../api';
-import { Campo, Carregando, Hash, Mensagem, Tabela, formatarData, formatarDia, formatarValor } from '../../componentes/basicos';
+import { Campo, Carregando, Hash, Mensagem, Tabela, contar, formatarData, formatarDia, formatarValor } from '../../componentes/basicos';
 import { mascararCpfs } from '../../privacidade';
 import { usePapelNoCaso } from '../../sessao/PapelContext';
 import { useSessao } from '../../sessao/SessaoContext';
@@ -203,7 +203,7 @@ export function AbaOrdemJudicial({ casoId, estado }: AbaOrdemJudicialProps) {
                     <td>
                       {d.registrado_por}
                       <div className="mudo">{formatarData(d.registrado_em)}</div>
-                      <div className="mudo">{d.importacoes} importação(ões)</div>
+                      <div className="mudo">{contar(d.importacoes, 'importação', 'importações')}</div>
                     </td>
                     <td>
                       <button type="button" className="br-button secondary small" aria-pressed={ativa} onClick={() => setDecisaoEscolhida(ativa ? null : String(d.id))}>
@@ -298,7 +298,7 @@ export function AbaOrdemJudicial({ casoId, estado }: AbaOrdemJudicialProps) {
         {anteriores.map((i) => (
           <details key={String(i.id)} className="diferencas" data-testid="importacao-anterior">
             <summary>
-              {formatarData(i.importado_em)} · {ROTULOS_ORIGEM[i.origem] ?? i.origem} · {i.totais.aceitas} linha(s) aceita(s), {i.totais.rejeitadas} rejeitada(s),{' '}
+              {formatarData(i.importado_em)} · {ROTULOS_ORIGEM[i.origem] ?? i.origem} · {contar(i.totais.aceitas, 'linha aceita', 'linhas aceitas')}, {contar(i.totais.rejeitadas, 'rejeitada')},{' '}
               {i.totais.em_quarentena} em quarentena
             </summary>
             <RelatorioImportacao importacao={i} />
@@ -352,7 +352,7 @@ export function AbaOrdemJudicial({ casoId, estado }: AbaOrdemJudicialProps) {
         {pagina && (
           <>
             <p role="status" data-testid="total-registros">
-              {pagina.total} registro(s) com os filtros escolhidos
+              {contar(pagina.total, 'registro')} com os filtros escolhidos
               {pagina.total > pagina.itens.length && (
                 <>
                   ; mostrando de {deslocamento + 1} a {deslocamento + pagina.itens.length}
@@ -452,7 +452,8 @@ export function RelatorioImportacao({ importacao: i, recente = false }: { import
       </p>
       <Mensagem tipo={i.totais.rejeitadas > 0 || i.totais.em_quarentena > 0 ? 'aviso' : 'ok'}>
         <span data-testid="totais-importacao">
-          {i.totais.linhas} linha(s) lida(s): {i.totais.aceitas} aceita(s), {i.totais.rejeitadas} rejeitada(s) e {i.totais.em_quarentena} em quarentena.
+          {contar(i.totais.linhas, 'linha lida', 'linhas lidas')}: {contar(i.totais.aceitas, 'aceita')}, {contar(i.totais.rejeitadas, 'rejeitada')} e{' '}
+          {i.totais.em_quarentena} em quarentena.
         </span>{' '}
         As aceitas incluem as que foram para a quarentena.
       </Mensagem>

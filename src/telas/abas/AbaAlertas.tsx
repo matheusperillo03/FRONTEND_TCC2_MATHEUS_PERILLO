@@ -13,7 +13,7 @@ import {
   type Tipologia,
 } from '../../api';
 import { CartaoAlerta, TEXTO_SINAL_FRACO, irParaCartaoAlerta } from '../../componentes/CartaoAlerta';
-import { Caixa, Campo, Carregando, Mensagem } from '../../componentes/basicos';
+import { Caixa, Campo, Carregando, Mensagem, contar } from '../../componentes/basicos';
 import { useSessao } from '../../sessao/SessaoContext';
 import { useChamada } from '../../sessao/useChamada';
 
@@ -229,12 +229,14 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar }: AbaAlertasPr
           <legend>Tipologias a executar</legend>
           {GRUPOS_TIPOLOGIA.map((g) => (
             <div key={g} role="group" aria-label={ROTULOS_GRUPO_TIPOLOGIA[g]} className="caixas-tipologias">
-              <strong>{ROTULOS_GRUPO_TIPOLOGIA[g]}:</strong>
-              {TIPOLOGIAS.filter((t) => grupoDaTipologia(t) === g).map((t) => (
-                <Caixa key={t} marcado={escolhidas.includes(t)} aoMudar={(marcada) => alternarTipologia(t, marcada)}>
-                  {t}
-                </Caixa>
-              ))}
+              <strong className="caixas-tipologias-rotulo">{ROTULOS_GRUPO_TIPOLOGIA[g]}:</strong>
+              <div className="caixas-tipologias-opcoes">
+                {TIPOLOGIAS.filter((t) => grupoDaTipologia(t) === g).map((t) => (
+                  <Caixa key={t} marcado={escolhidas.includes(t)} aoMudar={(marcada) => alternarTipologia(t, marcada)}>
+                    {t}
+                  </Caixa>
+                ))}
+              </div>
             </div>
           ))}
           <p className="campo-dica">
@@ -289,7 +291,8 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar }: AbaAlertasPr
       {lista.erro && <Mensagem tipo="erro">{lista.erro}</Mensagem>}
       {todos.length > 0 && (
         <p role="status" data-testid="resumo-situacao">
-          {contagem('pendente')} pendente(s) de análise · {contagem('confirmado')} confirmado(s) · {contagem('descartado')} descartado(s)
+          {contar(contagem('pendente'), 'pendente')} de análise · {contar(contagem('confirmado'), 'confirmado')} ·{' '}
+          {contar(contagem('descartado'), 'descartado')}
         </p>
       )}
       {lista.dados && todos.length === 0 && <p className="vazio">Nenhum alerta. Execute as tipologias após a coleta.</p>}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { EntradaAuditoria, Id, VerificacaoAuditoria } from '../../api';
-import { Campo, Carregando, Hash, Mensagem, Tabela, formatarData, formatarValor } from '../../componentes/basicos';
+import { Campo, Carregando, Hash, Mensagem, Tabela, contar, formatarData, formatarValor } from '../../componentes/basicos';
 import { mascararCpfs } from '../../privacidade';
 import { useSessao } from '../../sessao/SessaoContext';
 import { useChamada } from '../../sessao/useChamada';
@@ -46,7 +46,7 @@ export function AbaAuditoria({ casoId }: { casoId: Id }) {
       {verificacao.dados && (
         <Mensagem tipo={verificacao.dados.integra ? 'ok' : 'erro'}>
           <strong data-testid="resultado-cadeia">{verificacao.dados.integra ? 'Cadeia íntegra' : 'Cadeia VIOLADA'}</strong> ·{' '}
-          {verificacao.dados.entradas} entrada(s) verificada(s)
+          {contar(verificacao.dados.entradas, 'entrada verificada', 'entradas verificadas')}
           {!verificacao.dados.integra && verificacao.dados.primeira_quebra !== null && (
             <>
               {' '}

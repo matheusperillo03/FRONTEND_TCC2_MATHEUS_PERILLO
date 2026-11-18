@@ -249,9 +249,9 @@ describe('Caso — papel no caso e abas do horizonte 3', () => {
   it('o cabeçalho mostra o papel e as contagens novas; as abas Equipe e Sugestões da IA mostram o que está pendente', async () => {
     renderizarCaso();
     expect(await screen.findByTestId('papel-no-caso')).toHaveTextContent('responsável');
-    expect(screen.getByText(/3 membro\(s\) · 2 tarefa\(s\) aberta\(s\) · 2 anotação\(ões\) · 6 sugestão\(ões\) de IA pendente\(s\)/)).toBeInTheDocument();
-    expect(screen.getByTestId('tarefas-abertas')).toHaveTextContent('2 tarefa(s) aberta(s)');
-    expect(screen.getByTestId('sugestoes-ia-pendentes')).toHaveTextContent('6 sugestão(ões) pendente(s)');
+    expect(screen.getByText(/3 membros · 2 tarefas abertas · 2 anotações · 6 sugestões de IA pendentes/)).toBeInTheDocument();
+    expect(screen.getByTestId('tarefas-abertas')).toHaveTextContent('2 tarefas abertas');
+    expect(screen.getByTestId('sugestoes-ia-pendentes')).toHaveTextContent('6 sugestões pendentes');
     expect(screen.queryByText(/O servidor recusa as ações de escrita/)).not.toBeInTheDocument();
     expect(await screen.findAllByTestId('membro')).toHaveLength(3);
   });

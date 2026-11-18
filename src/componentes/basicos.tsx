@@ -60,6 +60,14 @@ export function formatarDia(iso: string | undefined | null): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso || '—';
 }
 
+/**
+ * Número com o substantivo concordando ("1 aviso", "2 avisos", "0 avisos"),
+ * no lugar de "aviso(s)". O plural irregular vem no terceiro argumento.
+ */
+export function contar(n: number, singular: string, plural = `${singular}s`): string {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
 export function formatarValor(v: unknown): string {
   if (v === null || v === undefined) return '—';
   if (typeof v === 'number') return v.toLocaleString('pt-BR');

@@ -210,7 +210,7 @@ describe('RF10 e RNF02: importação, relatório de validação e registros', ()
     expect(within(relatorio).getByRole('heading', { name: 'Importação concluída: relatório de validação' })).toBeInTheDocument();
     expect(relatorio).toHaveTextContent('Origem: Mídia (Mídia entregue pelo banco sintético)');
     expect(relatorio).toHaveTextContent('sigiloso: ordem judicial nº Decisão ID 123456');
-    expect(within(relatorio).getByTestId('totais-importacao')).toHaveTextContent('15 linha(s) lida(s): 14 aceita(s), 1 rejeitada(s) e 3 em quarentena.');
+    expect(within(relatorio).getByTestId('totais-importacao')).toHaveTextContent('15 linhas lidas: 14 aceitas, 1 rejeitada e 3 em quarentena.');
 
     const arquivos = within(relatorio).getAllByTestId('arquivo-importado');
     expect(arquivos.map((a) => within(a).getByRole('rowheader').querySelector('code')?.textContent)).toEqual(['AGENCIAS', 'CONTAS', 'TITULARES', 'EXTRATO', 'ORIGEM_DESTINO']);
@@ -228,7 +228,7 @@ describe('RF10 e RNF02: importação, relatório de validação e registros', ()
     expect(rejeicoes[0]).toHaveTextContent('EXTRATO.txt, linha 7, campo DATA_LANCAMENTO: data inválida (esperado ddmmaaaa)');
     expect(gravada).toMatchObject({ origem: 'midia', descricao_origem: 'Mídia entregue pelo banco sintético', importado_por: 'delegado.demo' });
     // A decisão passa a contar a importação.
-    await waitFor(() => expect(screen.getByTestId('decisao-judicial')).toHaveTextContent('1 importação(ões)'));
+    await waitFor(() => expect(screen.getByTestId('decisao-judicial')).toHaveTextContent('1 importação'));
   });
 
   it('mostra o motivo quando o servidor recusa a pasta (422: sem o marcador SINTETICO)', async () => {
@@ -250,7 +250,7 @@ describe('RF10 e RNF02: importação, relatório de validação e registros', ()
     expect(screen.queryByTestId('registro-judicial')).not.toBeInTheDocument();
 
     await usuario.click(screen.getByRole('button', { name: 'Consultar registros' }));
-    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('14 registro(s)'));
+    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('14 registros'));
     const todos = screen.getAllByTestId('registro-judicial');
     expect(todos).toHaveLength(14);
     for (const linha of todos) expect(linha).toHaveTextContent('sigiloso: ordem judicial nº Decisão ID 123456');
@@ -258,7 +258,7 @@ describe('RF10 e RNF02: importação, relatório de validação e registros', ()
 
     await usuario.selectOptions(screen.getByLabelText('Tipo de arquivo'), 'EXTRATO');
     await usuario.click(screen.getByRole('button', { name: 'Consultar registros' }));
-    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('7 registro(s)'));
+    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('7 registros'));
     const lancamento = screen.getAllByTestId('registro-judicial')[2];
     expect(lancamento).toHaveTextContent('linha 3');
     expect(lancamento).toHaveTextContent('10/02/2026');
@@ -268,7 +268,7 @@ describe('RF10 e RNF02: importação, relatório de validação e registros', ()
 
     await usuario.selectOptions(screen.getByLabelText('Quarentena'), 'true');
     await usuario.click(screen.getByRole('button', { name: 'Consultar registros' }));
-    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('2 registro(s)'));
+    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('2 registros'));
     const quarentena = screen.getAllByTestId('registro-judicial');
     expect(quarentena).toHaveLength(2);
     for (const linha of quarentena) {
@@ -280,7 +280,7 @@ describe('RF10 e RNF02: importação, relatório de validação e registros', ()
 
     await usuario.selectOptions(screen.getByLabelText('Quarentena'), 'false');
     await usuario.click(screen.getByRole('button', { name: 'Consultar registros' }));
-    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('5 registro(s)'));
+    await waitFor(() => expect(screen.getByTestId('total-registros')).toHaveTextContent('5 registros'));
     expect(screen.queryByTestId('selo-quarentena')).not.toBeInTheDocument();
   });
 
@@ -298,7 +298,7 @@ describe('RF10 e RNF02: importação, relatório de validação e registros', ()
     await usuario.selectOptions(screen.getByLabelText('Quarentena'), 'false');
     await usuario.click(screen.getByRole('button', { name: 'Consultar registros' }));
     expect(listarRegistrosJudiciais).toHaveBeenLastCalledWith('caso-1', { tipo: 'TITULARES', quarentena: false, limite: 50, deslocamento: 0 });
-    expect(await screen.findByTestId('total-registros')).toHaveTextContent('120 registro(s) com os filtros escolhidos; mostrando de 1 a 50.');
+    expect(await screen.findByTestId('total-registros')).toHaveTextContent('120 registros com os filtros escolhidos; mostrando de 1 a 50.');
     expect(screen.getByRole('button', { name: 'Página anterior' })).toBeDisabled();
     await usuario.click(screen.getByRole('button', { name: 'Próxima página' }));
     expect(listarRegistrosJudiciais).toHaveBeenLastCalledWith('caso-1', { tipo: 'TITULARES', quarentena: false, limite: 50, deslocamento: 50 });

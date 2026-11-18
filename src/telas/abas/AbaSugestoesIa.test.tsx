@@ -44,7 +44,7 @@ describe('AbaSugestoesIa — revisão lado a lado (RF13, RNF05, H22)', () => {
     renderizar();
     const sugestoes = await screen.findAllByTestId('sugestao-ia');
     expect(sugestoes).toHaveLength(6);
-    expect(screen.getByTestId('resumo-sugestoes')).toHaveTextContent('6 pendente(s) de decisão · 0 aceita(s) · 0 recusada(s)');
+    expect(screen.getByTestId('resumo-sugestoes')).toHaveTextContent('6 pendentes de decisão · 0 aceitas · 0 recusadas');
 
     const empresa = cartao('TETA SERVICOS SINTETICA LTDA');
     expect(within(empresa).getByText('empresa')).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe('AbaSugestoesIa — revisão lado a lado (RF13, RNF05, H22)', () => {
     await usuario.type(screen.getByLabelText('Justificativa da decisão (obrigatória)'), 'Trecho confere com o item 4.1 do edital.');
     await usuario.click(aceitar);
 
-    await waitFor(() => expect(screen.getByTestId('resumo-sugestoes')).toHaveTextContent('5 pendente(s) de decisão · 1 aceita(s) · 0 recusada(s)'));
+    await waitFor(() => expect(screen.getByTestId('resumo-sugestoes')).toHaveTextContent('5 pendentes de decisão · 1 aceita · 0 recusadas'));
     expect(aoMudar).toHaveBeenCalled();
     // A lista mostra só as pendentes por padrão: a aceita sai dela.
     expect(screen.getAllByTestId('sugestao-ia')).toHaveLength(5);
@@ -133,7 +133,7 @@ describe('AbaSugestoesIa — revisão lado a lado (RF13, RNF05, H22)', () => {
     await usuario.click(within(cartao('15/03/2026')).getByRole('button', { name: 'Ver o trecho no documento' }));
     await usuario.type(screen.getByLabelText('Justificativa da decisão (obrigatória)'), 'É a data da sessão, não a do contrato.');
     await usuario.click(screen.getByRole('button', { name: 'Recusar sugestão' }));
-    await waitFor(() => expect(screen.getByTestId('resumo-sugestoes')).toHaveTextContent('4 pendente(s) de decisão · 1 aceita(s) · 1 recusada(s)'));
+    await waitFor(() => expect(screen.getByTestId('resumo-sugestoes')).toHaveTextContent('4 pendentes de decisão · 1 aceita · 1 recusada'));
     const noServidor = await cliente.listarSugestoesIa('caso-1');
     expect(noServidor.filter((s) => s.situacao !== 'pendente').map((s) => [s.tipo, s.situacao, s.entidade_id])).toEqual([
       ['data', 'recusada', null],
@@ -160,7 +160,7 @@ describe('AbaSugestoesIa — revisão lado a lado (RF13, RNF05, H22)', () => {
     const execucao = await screen.findByTestId('execucao-ia');
     expect(execucao).toHaveAttribute('open');
     expect(execucao).toHaveTextContent('ext-1');
-    expect(execucao).toHaveTextContent('6 sugestão(ões), 2 recusado(s) automaticamente');
+    expect(execucao).toHaveTextContent('6 sugestões, 2 recusados automaticamente');
     expect(execucao).toHaveTextContent('modelo-sintetico-de-demonstracao');
     expect(execucao).toHaveTextContent('sintetico-0');
     expect(within(execucao).getByText('temperature')).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe('AbaSugestoesIa — revisão lado a lado (RF13, RNF05, H22)', () => {
     expect(screen.getByLabelText('Captura do documento')).toHaveValue('cap-10');
     await usuario.click(screen.getByRole('button', { name: 'Extrair com IA' }));
 
-    expect(await screen.findByText(/8 item\(ns\) devolvido\(s\) pelo modelo/)).toHaveTextContent('6 virou(aram) sugestão pendente e 2 foi(ram) recusado(s)');
+    expect(await screen.findByText(/8 itens devolvidos pelo modelo/)).toHaveTextContent('6 viraram sugestões pendentes e 2 foram recusados');
     await waitFor(() => expect(screen.getAllByTestId('sugestao-ia')).toHaveLength(12));
     expect(await screen.findAllByTestId('execucao-ia')).toHaveLength(2);
     expect(await screen.findByTestId('trecho-destacado')).toHaveTextContent('PREFEITURA SINTETICA DE EXEMPLOPOLIS');

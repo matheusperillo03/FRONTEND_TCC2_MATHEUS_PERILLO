@@ -35,7 +35,7 @@ describe('AbaAlertas — severidade (RF14) e decisão do investigador (RF12)', (
       expect(within(cartao).getByText(/^Prefere evitar falso (negativo|positivo):/)).toBeInTheDocument();
     }
     // O resumo conta todos os alertas, inclusive o sinal fraco recolhido.
-    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('15 pendente(s) de análise · 0 confirmado(s) · 0 descartado(s)');
+    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('15 pendentes de análise · 0 confirmados · 0 descartados');
   });
 
   it('descarta um alerta com justificativa: a situação muda na tela e a decisão vai para a auditoria', async () => {
@@ -46,7 +46,7 @@ describe('AbaAlertas — severidade (RF14) e decisão do investigador (RF12)', (
 
     expect(await within(cartao).findByText('descartado', { selector: '.situacao' })).toBeInTheDocument();
     expect(within(cartao).getByTestId('decisao')).toHaveTextContent('Justificativa: Baixa posterior ao contrato');
-    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('14 pendente(s) de análise · 0 confirmado(s) · 1 descartado(s)');
+    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('14 pendentes de análise · 0 confirmados · 1 descartado');
 
     const eventos = (await cliente.listarAuditoria('caso-1')).filter((e) => e.acao === 'alerta.decidir');
     expect(eventos).toHaveLength(1);
