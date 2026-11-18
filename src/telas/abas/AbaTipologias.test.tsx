@@ -135,23 +135,34 @@ describe('RF04: tipologias de lavagem no catálogo (grupos, sinal fraco e peso n
     expect(within(porCodigo(cartoes, 'L6')).getByText('Lavagem e ocultação')).toBeInTheDocument();
   });
 
-  it('l6_limites vira uma tabela ano → limite do MEI, com o limite mensal do ano de início e a fonte, mais ME e EPP', async () => {
+  it('l6_limites vira uma tabela por regime e por ano (MEI, ME e EPP), com o limite mensal do ano de início e a fonte', async () => {
     renderizar();
     const tabela = await screen.findByRole('table', { name: 'Limites de receita por regime ou porte' });
+    const periodo = (l: HTMLElement) => within(l).getAllByRole('cell')[0].textContent;
     const mei = within(tabela).getAllByTestId('limite-mei');
-    expect(mei.map((l) => within(l).getAllByRole('cell')[0].textContent)).toEqual(['até 2026', '2027', 'a partir de 2028']);
-    expect(mei[0]).toHaveTextContent(/R\$\s81\.000,00/);
-    expect(mei[0]).toHaveTextContent(/R\$\s6\.750,00/);
-    expect(mei[0]).toHaveTextContent('Lei Complementar nº 123/2006, art. 18-A');
-    expect(mei[1]).toHaveTextContent(/R\$\s110\.000,00/);
-    expect(mei[2]).toHaveTextContent(/R\$\s140\.000,00/);
-    expect(mei[2]).toHaveTextContent('Lei Complementar nº 238/2026');
+    expect(mei.map(periodo)).toEqual(['2012 a 2017', '2018 a 2026', '2027', 'a partir de 2028']);
+    expect(mei[0]).toHaveTextContent(/R\$\s60\.000,00.*R\$\s5\.000,00/);
+    expect(mei[1]).toHaveTextContent(/R\$\s81\.000,00/);
+    expect(mei[1]).toHaveTextContent(/R\$\s6\.750,00/);
+    expect(mei[1]).toHaveTextContent('Lei Complementar nº 123/2006, art. 18-A');
+    expect(mei[2]).toHaveTextContent(/R\$\s110\.000,00/);
+    expect(mei[3]).toHaveTextContent(/R\$\s140\.000,00/);
+    expect(mei[3]).toHaveTextContent('Lei Complementar nº 238/2026');
     const portes = within(tabela).getAllByTestId('limite-porte');
-    expect(portes[0]).toHaveTextContent(/Microempresa \(ME\).*R\$\s360\.000,00/);
-    expect(portes[1]).toHaveTextContent(/Empresa de pequeno porte \(EPP\).*R\$\s4\.800\.000,00/);
-    // O booleano e as listas dos parâmetros novos ficam legíveis, sem JSON.
+    expect(portes.map((l) => [within(l).getByRole('rowheader').textContent, periodo(l)])).toEqual([
+      ['Microempresa (ME)', 'a partir de 2012'],
+      ['Empresa de pequeno porte (EPP)', '2012 a 2017'],
+      ['Empresa de pequeno porte (EPP)', 'a partir de 2018'],
+    ]);
+    expect(portes[0]).toHaveTextContent(/R\$\s360\.000,00.*limite anual × meses ÷ 12/);
+    expect(portes[1]).toHaveTextContent(/R\$\s3\.600\.000,00/);
+    expect(portes[2]).toHaveTextContent(/R\$\s4\.800\.000,00/);
+    expect(screen.getByTestId('limites-primeiro-ano')).toHaveTextContent('Contratos anteriores a 2012 não são avaliados');
+    // A tolerância da transição saiu: a lei não a prevê.
     const l6 = porCodigo(screen.getAllByTestId('tipologia'), 'L6');
-    expect(within(l6).getAllByTestId('parametro-tipologia')[1]).toHaveTextContent(/l6_tolerancia_transicao.*sim/);
+    expect(within(l6).getAllByTestId('parametro-tipologia')).toHaveLength(1);
+    expect(l6).not.toHaveTextContent('l6_tolerancia_transicao');
+    // As listas dos parâmetros ficam legíveis, sem JSON.
     expect(porCodigo(screen.getAllByTestId('tipologia'), 'L14')).toHaveTextContent(/l14_faixas_atipicas\s*1\s+2\s+9/);
   });
 
@@ -194,5 +205,20 @@ describe('RF04: tipologias de lavagem no catálogo (grupos, sinal fraco e peso n
     );
     expect(screen.getByTestId('parametro-tipologia')).toHaveTextContent('indisponível');
     expect(screen.queryByRole('table', { name: 'Limites de receita por regime ou porte' })).not.toBeInTheDocument();
+  });
+
+  it('l6_limites de resposta antiga, sem a tabela por ano: mostra a linha atual da ME e da EPP', () => {
+    render(
+      <CartaoTipologia
+        tipologia={{
+          codigo: 'L6', nome: 'Porte incompatível', historia: '', severidade: 'media', prefere_evitar: 'falso_positivo', politica_erro: 'P.', regra: 'R.', base: 'B.', fontes: [],
+          parametros: [{ nome: 'l6_limites', valor: { mei: { '2026': { anual: 81000, mensal_inicio: 6750 } }, me: { anual: 360000 }, epp: { anual: 4800000 } }, descricao: 'Limites.', por_execucao: false }],
+        }}
+      />,
+    );
+    const portes = screen.getAllByTestId('limite-porte');
+    expect(portes.map((l) => within(l).getAllByRole('cell')[0].textContent)).toEqual(['todos', 'todos']);
+    expect(screen.getByTestId('limite-mei')).toHaveTextContent('a partir de 2026');
+    expect(screen.queryByTestId('limites-primeiro-ano')).not.toBeInTheDocument();
   });
 });

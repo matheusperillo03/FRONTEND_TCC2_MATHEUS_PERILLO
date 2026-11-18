@@ -449,15 +449,17 @@ export interface LimiteReceita {
 }
 
 /**
- * `l6_limites`: limite do MEI por ano-calendário e limites da ME e da EPP.
- * `mei_ate` e `mei_a_partir` dizem que ano vale antes do primeiro e depois do último da tabela.
+ * `l6_limites`: limites de receita por ano-calendário do MEI (`mei`), da ME (`me_por_ano`) e da
+ * EPP (`epp_por_ano`). Cada linha vale do seu ano até a linha seguinte, e a última dali em diante.
+ * `me` e `epp` repetem a linha atual. Antes de `primeiro_ano` a L6 não avalia.
  */
 export interface LimitesL6 {
   mei?: Record<string, LimiteReceita>;
   me?: LimiteReceita;
   epp?: LimiteReceita;
-  mei_ate?: string;
-  mei_a_partir?: string;
+  me_por_ano?: Record<string, LimiteReceita>;
+  epp_por_ano?: Record<string, LimiteReceita>;
+  primeiro_ano?: number;
 }
 
 /** Uma linha de `t5_limites_dispensa`: limites do art. 75, I e II, num exercício, com a fonte. */

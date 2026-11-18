@@ -143,7 +143,9 @@ export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, a
   // Nas tipologias de lavagem e na combinação, o aviso de que o alerta é pista vem no alto do cartão (RF12).
   const avisoDePista = grupo !== 'contratacao';
   // As ocorrências e os componentes têm seção própria; na tabela de parâmetros virariam um JSON ilegível.
-  const FORA_DA_TABELA = ['ocorrencias', ...(ehCombinacao ? ['componentes', 'aviso'] : [])];
+  // O limite e o excesso da L6 também: são lidos em reais e com o dispositivo da lei.
+  const ehL6 = alerta.tipologia === 'L6' && typeof parametros.limite_legal === 'number';
+  const FORA_DA_TABELA = ['ocorrencias', ...(ehCombinacao ? ['componentes', 'aviso'] : []), ...(ehL6 ? PARAMETROS_SECAO_L6 : [])];
   const parametrosDaTabela = Object.fromEntries(Object.entries(parametros).filter(([chave]) => !FORA_DA_TABELA.includes(chave)));
   return (
     <article
@@ -239,6 +241,7 @@ export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, a
         </section>
       )}
       {ehCombinacao && <SecaoCombinacao alerta={alerta} aoIrParaAlerta={aoIrParaAlerta} />}
+      {ehL6 && <SecaoLimiteL6 alerta={alerta} />}
       <div className="alerta-grade">
         <section>
           <h4>Parâmetros da regra</h4>
@@ -288,6 +291,82 @@ export function CartaoAlerta({ alerta, rotulosEntidades = {}, aoAbrirEntidade, a
         </div>
       )}
     </article>
+  );
+}
+
+/** Parâmetros da L6 mostrados na seção própria (e por isso fora da tabela de parâmetros). */
+const PARAMETROS_SECAO_L6 = [
+  'soma_contratada',
+  'limite_anual',
+  'limite_legal',
+  'fonte_limite',
+  'meses_no_ano_de_inicio',
+  'dispositivo_proporcional',
+  'excesso',
+  'faixa_excesso',
+  'dispositivo_excesso',
+  'anos_nao_avaliados',
+];
+
+const ROTULOS_FAIXA_EXCESSO: Record<string, string> = {
+  ate_20: 'até 20% do limite',
+  acima_de_20: 'acima de 20% do limite',
+};
+
+function reais(valor: unknown): string {
+  return typeof valor === 'number' && Number.isFinite(valor) ? valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—';
+}
+
+/**
+ * L6 explicada: o limite legal do ano (proporcional no ano de início de atividade), o excesso,
+ * a faixa de 20% com o dispositivo da LC nº 123/2006 e os anos que ficaram sem avaliação.
+ */
+function SecaoLimiteL6({ alerta }: { alerta: Alerta }) {
+  const p = alerta.parametros ?? {};
+  const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v : '');
+  const meses = typeof p.meses_no_ano_de_inicio === 'number' ? p.meses_no_ano_de_inicio : null;
+  const faixa = texto(p.faixa_excesso);
+  const anosFora = Array.isArray(p.anos_nao_avaliados) ? p.anos_nao_avaliados.map(String) : [];
+  const proporcional = meses !== null && typeof p.limite_anual === 'number' && p.limite_anual !== p.limite_legal;
+  return (
+    <section className="alerta-limite-l6" aria-label={`Limite legal e excesso, alerta ${String(alerta.id)}`}>
+      <h4>Limite legal e excesso</h4>
+      <dl className="combinacao-totais">
+        <dt>Soma contratada no ano</dt>
+        <dd data-testid="l6-soma">{reais(p.soma_contratada)}</dd>
+        <dt>Limite legal</dt>
+        <dd data-testid="l6-limite">
+          <strong>{reais(p.limite_legal)}</strong>
+          {proporcional && <> (limite anual: {reais(p.limite_anual)})</>}
+          {texto(p.fonte_limite) && <div className="mudo quebra">{texto(p.fonte_limite)}</div>}
+        </dd>
+        <dt>Meses no ano de início</dt>
+        <dd data-testid="l6-meses">
+          {meses === null ? (
+            'não é o ano de início de atividade: vale o limite anual'
+          ) : (
+            <>
+              {meses} {meses === 1 ? 'mês' : 'meses'}, contada a fração de mês como mês inteiro
+              {texto(p.dispositivo_proporcional) && <> ({texto(p.dispositivo_proporcional)})</>}
+            </>
+          )}
+        </dd>
+        <dt>Excesso</dt>
+        <dd data-testid="l6-excesso">
+          <strong>{reais(p.excesso)}</strong>
+        </dd>
+        <dt>Faixa e dispositivo</dt>
+        <dd data-testid="l6-faixa">
+          {faixa ? (ROTULOS_FAIXA_EXCESSO[faixa] ?? faixa) : 'a lei não prevê faixa de 20% para este regime'}
+          {texto(p.dispositivo_excesso) && <> ({texto(p.dispositivo_excesso)})</>}
+        </dd>
+        <dt>Anos não avaliados</dt>
+        <dd data-testid="l6-anos-nao-avaliados">
+          {anosFora.length === 0 ? 'nenhum' : `${anosFora.join(', ')} (limites não conferidos no texto legal)`}
+        </dd>
+      </dl>
+      <p className="mudo">A faixa de 20% não dispensa o excesso: só muda a data em que a saída do regime produz efeitos.</p>
+    </section>
   );
 }
 
