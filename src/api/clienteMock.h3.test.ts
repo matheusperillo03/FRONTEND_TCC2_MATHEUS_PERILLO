@@ -322,18 +322,69 @@ describe('ClienteMock — extração assistida por IA local (H22)', () => {
     expect(TEXTOS_CAPTURA_DEMO['cap-10']).not.toContain(extracao.recusas[0].trecho);
   });
 
-  it('extrair cria uma execução nova com sugestões pendentes e nenhuma entidade; desligada, responde 409', async () => {
+  it('extrair põe a execução na fila (sem sugestões) e cada consulta do andamento conclui um bloco; desligada, responde 409', async () => {
     const { cliente } = criar();
     const antes = (await cliente.buscarEntidades('caso-1', '')).length;
     const extracao = await cliente.extrairComIa('caso-1', 'cap-10');
-    expect(extracao.sugestoes).toHaveLength(6);
-    expect(extracao.sugestoes.every((s) => s.situacao === 'pendente' && s.extracao_id === extracao.id)).toBe(true);
+    expect(extracao).toMatchObject({ situacao: 'na_fila', sugestoes: [], itens_aceitos: 0 });
+    expect(extracao.progresso).toMatchObject({ ativa: true, posicao_na_fila: 1, blocos_total: 3, blocos_concluidos: 0, estimativa_restante_ms: null });
+    // Só uma execução ativa por documento.
+    await expect(cliente.extrairComIa('caso-1', 'cap-10')).rejects.toEqual(erro(409, new RegExp(`para este documento \\(${extracao.id}\\)`)));
+    await expect(cliente.listarSugestoesIa('caso-1')).resolves.toHaveLength(6);
+
+    const passos: string[] = [];
+    let progresso = extracao.progresso!;
+    while (progresso.ativa) {
+      progresso = await cliente.progressoExtracaoIa('caso-1', extracao.id);
+      passos.push(`${progresso.situacao}:${progresso.blocos_concluidos}/${progresso.blocos_total}:${(await cliente.listarSugestoesIa('caso-1')).length}`);
+    }
+    // As sugestões aparecem conforme os blocos terminam (6 já existiam da execução da demonstração).
+    expect(passos).toEqual(['em_andamento:0/3:6', 'em_andamento:1/3:8', 'em_andamento:2/3:10', 'sucesso:3/3:12']);
+    expect(progresso).toMatchObject({ ativa: false, retomavel: false, itens_aceitos: 6, itens_recusados: 2, bloco_atual: null, estimativa_restante_ms: null });
+    expect(progresso.blocos.map((b) => b.situacao)).toEqual(['concluido', 'concluido', 'concluido']);
+    const novas = (await cliente.listarSugestoesIa('caso-1')).filter((s) => s.extracao_id === extracao.id);
+    expect(novas.every((s) => s.situacao === 'pendente')).toBe(true);
     expect(await cliente.buscarEntidades('caso-1', '')).toHaveLength(antes);
-    await expect(cliente.listarExtracoesIa('caso-1')).resolves.toHaveLength(2);
-    expect((await cliente.listarAuditoria('caso-1')).some((e) => e.acao === 'ia.extrair')).toBe(true);
+    const lista = await cliente.listarExtracoesIa('caso-1');
+    expect(lista).toHaveLength(2);
+    expect(lista[0]).toMatchObject({ id: extracao.id, situacao: 'sucesso', progresso: { blocos_concluidos: 3 } });
+    // O pedido é auditado; a consulta periódica do andamento, não.
+    const acoes = (await cliente.listarAuditoria('caso-1')).map((e) => e.acao);
+    expect(acoes.filter((a) => a === 'ia.extrair')).toHaveLength(2);
+    expect(acoes.some((a) => a.includes('progresso'))).toBe(false);
     await expect(cliente.extrairComIa('caso-1', 'cap-1')).rejects.toEqual(erro(422));
     await expect(cliente.extrairComIa('caso-1', 'nao-existe')).rejects.toEqual(erro(404));
+    await expect(cliente.progressoExtracaoIa('caso-1', 'nao-existe')).rejects.toEqual(erro(404));
     await expect(criar('dev-analista', { iaAtiva: false }).cliente.extrairComIa('caso-1', 'cap-10')).rejects.toEqual(erro(409, /desligada neste servidor/));
+  });
+
+  it('cancelar preserva os blocos concluídos, e retomar processa só os que faltavam', async () => {
+    const { cliente, usar } = criar();
+    const extracao = await cliente.extrairComIa('caso-1', 'cap-10');
+    await cliente.progressoExtracaoIa('caso-1', extracao.id);
+    await cliente.progressoExtracaoIa('caso-1', extracao.id); // bloco 1 concluído, bloco 2 em andamento
+    // O leitor acompanha, mas não cancela nem retoma.
+    usar('dev-agente');
+    await expect(cliente.cancelarExtracaoIa('caso-1', extracao.id)).rejects.toEqual(erro(403));
+    await expect(cliente.progressoExtracaoIa('caso-1', 'ext-1')).resolves.toMatchObject({ situacao: 'sucesso' });
+    usar('dev-analista');
+    await expect(cliente.cancelarExtracaoIa('caso-1', extracao.id)).resolves.toMatchObject({ ativa: true, cancelamento_pedido: true });
+    const cancelada = await cliente.progressoExtracaoIa('caso-1', extracao.id);
+    expect(cancelada).toMatchObject({ situacao: 'cancelada', ativa: false, retomavel: true, blocos_concluidos: 1, blocos_pendentes: 2 });
+    await expect(cliente.listarSugestoesIa('caso-1')).resolves.toHaveLength(8);
+    await expect(cliente.cancelarExtracaoIa('caso-1', extracao.id)).rejects.toEqual(erro(409, /não há o que cancelar/));
+    await expect(cliente.retomarExtracaoIa('caso-1', 'ext-1')).rejects.toEqual(erro(409, /não pode ser retomada/));
+
+    let progresso = await cliente.retomarExtracaoIa('caso-1', extracao.id);
+    expect(progresso).toMatchObject({ situacao: 'na_fila', ativa: true, retomadas: 1, blocos_concluidos: 1, cancelamento_pedido: false });
+    while (progresso.ativa) progresso = await cliente.progressoExtracaoIa('caso-1', extracao.id);
+    expect(progresso).toMatchObject({ situacao: 'sucesso', blocos_concluidos: 3, itens_aceitos: 6 });
+    await expect(cliente.listarSugestoesIa('caso-1')).resolves.toHaveLength(12);
+    const acoes = (await cliente.listarAuditoria('caso-1')).map((e) => e.acao);
+    expect(acoes).toEqual(expect.arrayContaining(['ia.extracao_cancelar', 'ia.extracao_retomar']));
+    // Na fila, o cancelamento é imediato.
+    const outra = await cliente.extrairComIa('caso-1', 'cap-10');
+    await expect(cliente.cancelarExtracaoIa('caso-1', outra.id)).resolves.toMatchObject({ situacao: 'cancelada', ativa: false, blocos_concluidos: 0 });
   });
 
   it('a decisão exige justificativa, é única (409) e só a aceitação liga a sugestão a uma entidade', async () => {

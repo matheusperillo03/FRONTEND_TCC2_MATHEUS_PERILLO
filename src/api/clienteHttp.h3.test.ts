@@ -202,10 +202,28 @@ describe('ClienteHttp — extração por IA local (H22)', () => {
     for (const i of [0, 1, 2, 3, 4]) expect(chamada(i).cabecalhos['X-Justificativa']).toBeDefined();
   });
 
-  it('IA desligada (409) e extração que falhou (502) chegam com o detalhe', async () => {
+  it('IA desligada e documento com outra extração ativa (409) chegam com o detalhe', async () => {
     const desligada = criar({ resposta: json({ detail: 'A extração assistida por IA está desligada neste servidor (IA_EXTRACAO_ATIVA=0).' }, 409) });
     await expect(desligada.cliente.extrairComIa('caso-1', 'cap-10')).rejects.toMatchObject({ status: 409 });
-    const falhou = criar({ resposta: json({ detail: 'A extração falhou e foi registrada (ext-9): tempo esgotado' }, 502) });
-    await expect(falhou.cliente.extrairComIa('caso-1', 'cap-10')).rejects.toMatchObject({ status: 502, detalhe: expect.stringContaining('ext-9') });
+    const ocupado = criar({ resposta: json({ detail: 'Já existe uma extração em andamento ou na fila para este documento (ext-9).' }, 409) });
+    await expect(ocupado.cliente.extrairComIa('caso-1', 'cap-10')).rejects.toMatchObject({ status: 409, detalhe: expect.stringContaining('ext-9') });
+  });
+
+  it('o pedido de extração responde 202 com a execução na fila; andamento, cancelamento e retomada têm rota própria', async () => {
+    const naFila = { id: 'ext-9', situacao: 'na_fila', sugestoes: [], progresso: { id: 'ext-9', situacao: 'na_fila', ativa: true } };
+    const { cliente, chamada } = criar({ resposta: json(naFila, 202) });
+    await expect(cliente.extrairComIa('caso-1', 'cap-10')).resolves.toMatchObject({ id: 'ext-9', situacao: 'na_fila', progresso: { ativa: true } });
+    await cliente.progressoExtracaoIa('caso-1', 'ext-9');
+    await cliente.cancelarExtracaoIa('caso-1', 'ext-9');
+    await cliente.retomarExtracaoIa('caso-1', 'ext/9');
+    expect(chamada(1).url).toBe('http://api.teste:8000/casos/caso-1/extracoes-ia/ext-9/progresso');
+    expect(chamada(1).init.method ?? 'GET').toBe('GET');
+    expect(chamada(2).url).toBe('http://api.teste:8000/casos/caso-1/extracoes-ia/ext-9/cancelar');
+    expect(chamada(3).url).toBe('http://api.teste:8000/casos/caso-1/extracoes-ia/ext%2F9/retomar');
+    for (const i of [2, 3]) {
+      expect(chamada(i).init.method).toBe('POST');
+      expect(chamada(i).init.body).toBeUndefined();
+    }
+    for (const i of [0, 1, 2, 3]) expect(chamada(i).cabecalhos['X-Justificativa']).toBeDefined();
   });
 });
