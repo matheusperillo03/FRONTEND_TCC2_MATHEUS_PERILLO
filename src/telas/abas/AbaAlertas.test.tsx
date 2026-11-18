@@ -38,6 +38,18 @@ describe('AbaAlertas — severidade (RF14) e decisão do investigador (RF12)', (
     expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('15 pendentes de análise · 0 confirmados · 0 descartados');
   });
 
+  it('diz o total de alertas do caso e quantos estão em cada bloco, para o número conferir com o do cabeçalho', async () => {
+    const { usuario } = await renderizarComAlertas();
+    // 14 cartões à vista e 1 sinal fraco recolhido: o total é 15, como no cabeçalho do caso.
+    expect(screen.getAllByRole('article')).toHaveLength(14);
+    const total = screen.getByTestId('resumo-total');
+    expect(total).toHaveTextContent('15 alertas no caso (o mesmo número do cabeçalho): 2 de combinação, 12 por tipologia e 1 sinal fraco (recolhido no fim da lista).');
+    expect(total).not.toHaveTextContent('Com os filtros escolhidos');
+    await usuario.selectOptions(screen.getByLabelText('Tipologia'), 'T9');
+    expect(total).toHaveTextContent('15 alertas no caso');
+    expect(total).toHaveTextContent('Com os filtros escolhidos: 2.');
+  });
+
   it('descarta um alerta com justificativa: a situação muda na tela e a decisão vai para a auditoria', async () => {
     const { usuario, cliente } = await renderizarComAlertas();
     const cartao = within(screen.getByTestId('grupo-alertas')).getAllByRole('article')[0];
