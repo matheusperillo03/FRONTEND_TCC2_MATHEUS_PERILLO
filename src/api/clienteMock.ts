@@ -58,6 +58,7 @@ import {
   type ApiCliente,
   type ArquivoExportado,
   type Aviso,
+  type BlocoExtracaoIa,
   type Captura,
   type Caso,
   type CasoDetalhe,
@@ -101,8 +102,10 @@ import {
   type PaginaRegistrosJudiciais,
   type PapelCaso,
   type ParametrosTipologias,
+  type ProgressoExtracaoIa,
   type RecoletaMonitorada,
   type RecoletaResultado,
+  type RecusaIa,
   type RegistroJudicial,
   type Saude,
   type SessaoAtual,
@@ -218,6 +221,8 @@ export class ClienteMock implements ApiCliente {
   private tarefasPorCaso = new Map<string, Tarefa[]>([[String(CASO_DEMO.id), TAREFAS_DEMO.map(clonarTarefa)]]);
   private extracoesPorCaso = new Map<string, ExtracaoIa[]>();
   private sugestoesIaPorCaso = new Map<string, SugestaoIa[]>();
+  /** O que cada execução ainda vai produzir, bloco a bloco (a extração simulada é assíncrona). */
+  private planosIa = new Map<string, PlanoIa>();
   // RF10: coleções à parte do dado aberto.
   private readonly importacaoJudicialAtiva: boolean;
   private decisoesJudiciaisPorCaso = new Map<string, DecisaoJudicial[]>();
@@ -236,7 +241,7 @@ export class ClienteMock implements ApiCliente {
     // Os identificadores dela são fixos (ext-1, sug-2 a sug-7) e não consomem a numeração dos demais.
     const numeracao = this.proximoId;
     this.proximoId = 1;
-    this.novaExtracao(CASO_DEMO.id, CAPTURA_EDITAL_DEMO, 'delegado.demo', '2026-11-15T10:00:00Z');
+    this.novaExtracao(CASO_DEMO.id, CAPTURA_EDITAL_DEMO, 'delegado.demo', '2026-11-15T10:00:00Z', true);
     this.proximoId = numeracao;
   }
 
@@ -1829,8 +1834,13 @@ export class ClienteMock implements ApiCliente {
    * passam pela mesma verificação do back-end (o trecho precisa estar,
    * literal, no texto) e viram sugestões PENDENTES; os demais ficam em
    * `recusas`. As posições contam pontos de código Unicode.
+   *
+   * Como no back-end, a execução é assíncrona: nasce `na_fila`, com o resultado
+   * guardado num plano de `BLOCOS_SIMULADOS` blocos, e cada consulta do
+   * andamento conclui um bloco (as sugestões dele passam a existir). Com
+   * `imediata`, a execução já nasce concluída (a que vem pronta na demonstração).
    */
-  private novaExtracao(casoId: Id, capturaId: Id, usuario: string, quando: string): ExtracaoIa {
+  private novaExtracao(casoId: Id, capturaId: Id, usuario: string, quando: string, imediata = false): ExtracaoIa {
     const texto = TEXTOS_CAPTURA_DEMO[String(capturaId)] ?? '';
     const captura = this.capturas.find((c) => mesmoId(c.id, capturaId));
     const id = `ext-${this.proximoId++}`;
@@ -1874,21 +1884,116 @@ export class ClienteMock implements ApiCliente {
       servidor_versao: IA_DEMO.servidor_versao,
       parametros: { ...IA_DEMO.parametros },
       prompt_sha256: hashSintetico('prompt-de-extracao-simulado'),
-      situacao: 'sucesso',
+      situacao: 'na_fila',
       motivo: '',
-      blocos: 1,
-      itens_recebidos: sugestoes.length + recusas.length,
-      itens_aceitos: sugestoes.length,
-      itens_recusados: recusas.length,
-      recusas,
+      blocos: BLOCOS_SIMULADOS,
+      itens_recebidos: 0,
+      itens_aceitos: 0,
+      itens_recusados: 0,
+      recusas: [],
       usuario,
       iniciado_em: quando,
-      concluido_em: quando,
+      concluido_em: null,
       sugestoes: [],
     };
+    // As sugestões são repartidas pelos blocos na ordem do documento; as recusas ficam no último.
+    const ordenadas = [...sugestoes].sort((a, b) => a.posicao_inicio - b.posicao_inicio);
+    const porBloco = Math.max(1, Math.ceil(ordenadas.length / BLOCOS_SIMULADOS));
+    const tamanho = Math.ceil(Array.from(texto).length / BLOCOS_SIMULADOS);
+    this.planosIa.set(id, {
+      casoId,
+      decorridoMs: 0,
+      cancelamentoPedido: false,
+      retomadas: 0,
+      blocos: Array.from({ length: BLOCOS_SIMULADOS }, (_, i) => ({
+        bloco: { numero: i + 1, situacao: 'pendente', caracteres: tamanho, tentativas: 0, causa: '', duracao_ms: 0, pai_numero: null },
+        sugestoes: ordenadas.slice(i * porBloco, i === BLOCOS_SIMULADOS - 1 ? undefined : (i + 1) * porBloco),
+        recusas: i === BLOCOS_SIMULADOS - 1 ? recusas : [],
+      })),
+    });
     const chave = String(casoId);
     this.extracoesPorCaso.set(chave, [extracao, ...(this.extracoesPorCaso.get(chave) ?? [])]);
-    this.sugestoesIaPorCaso.set(chave, [...this.sugestoesIa(casoId), ...sugestoes]);
+    if (imediata) {
+      while (ATIVAS_IA.has(extracao.situacao)) this.avancarExtracao(extracao);
+      extracao.concluido_em = quando;
+    }
+    return extracao;
+  }
+
+  /** Um passo da execução simulada: sai da fila ou conclui o bloco em andamento. */
+  private avancarExtracao(extracao: ExtracaoIa): void {
+    const plano = this.planosIa.get(String(extracao.id));
+    if (!plano || !ATIVAS_IA.has(extracao.situacao)) return;
+    const encerrar = (situacao: string, motivo = '') => {
+      extracao.situacao = situacao;
+      extracao.motivo = motivo;
+      extracao.concluido_em = new Date().toISOString();
+    };
+    const proximo = () => plano.blocos.find((b) => b.bloco.situacao === 'pendente');
+    const atual = plano.blocos.find((b) => b.bloco.situacao === 'em_andamento');
+    if (plano.cancelamentoPedido) {
+      if (atual) atual.bloco.situacao = 'pendente';
+      encerrar('cancelada', `Cancelada por ${extracao.usuario}. Os blocos já concluídos estão gravados.`);
+      return;
+    }
+    if (extracao.situacao === 'na_fila') extracao.situacao = 'em_andamento';
+    if (atual) {
+      atual.bloco.situacao = 'concluido';
+      atual.bloco.duracao_ms = DURACAO_BLOCO_SIMULADO_MS;
+      plano.decorridoMs += DURACAO_BLOCO_SIMULADO_MS;
+      const chave = String(plano.casoId);
+      this.sugestoesIaPorCaso.set(chave, [...this.sugestoesIa(plano.casoId), ...atual.sugestoes]);
+      extracao.recusas = [...extracao.recusas, ...atual.recusas];
+      extracao.itens_aceitos += atual.sugestoes.length;
+      extracao.itens_recusados += atual.recusas.length;
+      extracao.itens_recebidos += atual.sugestoes.length + atual.recusas.length;
+    }
+    const seguinte = proximo();
+    if (seguinte) {
+      seguinte.bloco.situacao = 'em_andamento';
+      seguinte.bloco.tentativas += 1;
+    } else {
+      encerrar('sucesso');
+    }
+  }
+
+  private progressoDaExtracao(extracao: ExtracaoIa): ProgressoExtracaoIa {
+    const plano = this.planosIa.get(String(extracao.id));
+    const blocos = (plano?.blocos ?? []).map((b) => ({ ...b.bloco }));
+    const contar = (situacao: string) => blocos.filter((b) => b.situacao === situacao).length;
+    const ativa = ATIVAS_IA.has(extracao.situacao);
+    const concluidos = contar('concluido');
+    const pendentes = contar('pendente') + contar('em_andamento');
+    const naFila = (this.extracoesPorCaso.get(String(plano?.casoId ?? '')) ?? []).filter((e) => e.situacao === 'na_fila');
+    return {
+      id: extracao.id,
+      captura_id: extracao.captura_id,
+      situacao: extracao.situacao,
+      motivo: extracao.motivo,
+      ativa,
+      retomavel: RETOMAVEIS_IA.has(extracao.situacao),
+      cancelamento_pedido: plano?.cancelamentoPedido ?? false,
+      posicao_na_fila: extracao.situacao === 'na_fila' ? naFila.length - naFila.findIndex((e) => mesmoId(e.id, extracao.id)) : null,
+      blocos_total: blocos.length,
+      blocos_concluidos: concluidos,
+      blocos_falhos: contar('falho'),
+      blocos_pendentes: pendentes,
+      bloco_atual: blocos.find((b) => b.situacao === 'em_andamento')?.numero ?? null,
+      itens_recebidos: extracao.itens_recebidos,
+      itens_aceitos: extracao.itens_aceitos,
+      itens_recusados: extracao.itens_recusados,
+      tempo_decorrido_ms: plano?.decorridoMs ?? 0,
+      estimativa_restante_ms: ativa && concluidos > 0 ? pendentes * DURACAO_BLOCO_SIMULADO_MS : null,
+      retomadas: plano?.retomadas ?? 0,
+      iniciado_em: extracao.iniciado_em,
+      concluido_em: extracao.concluido_em,
+      blocos,
+    };
+  }
+
+  private extracaoDoCaso(casoId: Id, extracaoId: Id, rota: string): ExtracaoIa {
+    const extracao = (this.extracoesPorCaso.get(String(casoId)) ?? []).find((e) => mesmoId(e.id, extracaoId));
+    if (!extracao) throw new ErroApi(404, rota, `Execução ${extracaoId} não encontrada no caso.`);
     return extracao;
   }
 
@@ -1927,14 +2032,73 @@ export class ClienteMock implements ApiCliente {
     const captura = this.capturaDoCaso(casoId, capturaId, rota);
     if (mesmoId(captura.id, CAPTURA_VIOLADA_DEMO)) throw new ErroApi(409, rota, 'A captura não passou na verificação de integridade; a extração foi recusada.');
     this.textoDaCaptura(captura, rota);
+    const ativa = (this.extracoesPorCaso.get(String(casoId)) ?? []).find((e) => mesmoId(e.captura_id, captura.id) && ATIVAS_IA.has(e.situacao));
+    if (ativa) {
+      throw new ErroApi(409, rota, `Já existe uma extração em andamento ou na fila para este documento (${ativa.id}). Acompanhe, cancele ou aguarde o fim dela.`);
+    }
+    // Como no back-end (202): a execução nasce na fila, sem sugestões; o andamento vem por `progressoExtracaoIa`.
     const extracao = this.novaExtracao(casoId, captura.id, me.usuario, new Date().toISOString());
-    return clonarExtracao(extracao, this.sugestoesIa(casoId).filter((s) => mesmoId(s.extracao_id, extracao.id)));
+    return this.saidaDaExtracao(extracao);
+  }
+
+  private saidaDaExtracao(extracao: ExtracaoIa): ExtracaoIa {
+    return { ...clonarExtracao(extracao, []), progresso: this.progressoDaExtracao(extracao) };
+  }
+
+  /**
+   * Andamento da execução. Como no back-end, exige ser membro do caso e NÃO
+   * entra na auditoria (é consulta periódica, sem conteúdo do documento). No
+   * simulado, cada consulta faz a execução avançar um bloco.
+   */
+  async progressoExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa> {
+    const rota = `/casos/${casoId}/extracoes-ia/${extracaoId}/progresso`;
+    const me = this.autenticar();
+    const justificativa = this.exigirJustificativa(rota);
+    await this.esperar();
+    this.caso(casoId);
+    this.exigirPapel(me, casoId, justificativa, 'leitor', rota);
+    const extracao = this.extracaoDoCaso(casoId, extracaoId, rota);
+    this.avancarExtracao(extracao);
+    return this.progressoDaExtracao(extracao);
+  }
+
+  async cancelarExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa> {
+    const rota = `/casos/${casoId}/extracoes-ia/${extracaoId}/cancelar`;
+    const me = await this.consulta('ia.extracao_cancelar', casoId, { extracao_id: extracaoId }, 'investigador');
+    this.caso(casoId);
+    const extracao = this.extracaoDoCaso(casoId, extracaoId, rota);
+    const plano = this.planosIa.get(String(extracao.id));
+    if (!plano || !ATIVAS_IA.has(extracao.situacao)) throw new ErroApi(409, rota, `Esta execução está '${extracao.situacao}': não há o que cancelar.`);
+    if (extracao.situacao === 'na_fila') {
+      extracao.situacao = 'cancelada';
+      extracao.motivo = `Cancelada por ${me.usuario} antes de começar.`;
+      extracao.concluido_em = new Date().toISOString();
+    } else {
+      plano.cancelamentoPedido = true;
+    }
+    return this.progressoDaExtracao(extracao);
+  }
+
+  async retomarExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa> {
+    const rota = `/casos/${casoId}/extracoes-ia/${extracaoId}/retomar`;
+    await this.casoAberto('ia.extracao_retomar', casoId, { extracao_id: extracaoId }, 'investigador');
+    if (!this.iaAtiva) throw new ErroApi(409, rota, 'A extração assistida por IA está desligada neste servidor (IA_EXTRACAO_ATIVA=0).');
+    const extracao = this.extracaoDoCaso(casoId, extracaoId, rota);
+    const plano = this.planosIa.get(String(extracao.id));
+    if (!plano || !RETOMAVEIS_IA.has(extracao.situacao)) throw new ErroApi(409, rota, `Esta execução está '${extracao.situacao}' e não pode ser retomada.`);
+    for (const b of plano.blocos) if (b.bloco.situacao === 'falho' || b.bloco.situacao === 'em_andamento') b.bloco.situacao = 'pendente';
+    plano.cancelamentoPedido = false;
+    plano.retomadas += 1;
+    extracao.situacao = 'na_fila';
+    extracao.motivo = '';
+    extracao.concluido_em = null;
+    return this.progressoDaExtracao(extracao);
   }
 
   async listarExtracoesIa(casoId: Id): Promise<ExtracaoIa[]> {
     await this.consulta('ia.listar_extracoes', casoId);
     this.caso(casoId);
-    return (this.extracoesPorCaso.get(String(casoId)) ?? []).map((e) => clonarExtracao(e, []));
+    return (this.extracoesPorCaso.get(String(casoId)) ?? []).map((e) => this.saidaDaExtracao(e));
   }
 
   async listarSugestoesIa(casoId: Id, filtro: FiltroSugestoesIa = {}): Promise<SugestaoIa[]> {
@@ -2200,6 +2364,20 @@ export class ClienteMock implements ApiCliente {
 
 function clonarTarefa(t: Tarefa): Tarefa {
   return { ...t, historico: t.historico.map((h) => ({ ...h, alteracoes: Object.fromEntries(Object.entries(h.alteracoes).map(([campo, m]) => [campo, { ...m }])) })) };
+}
+
+/** Blocos e duração por bloco da extração simulada (valores de demonstração, não medições). */
+const BLOCOS_SIMULADOS = 3;
+const DURACAO_BLOCO_SIMULADO_MS = 40_000;
+const ATIVAS_IA = new Set(['na_fila', 'em_andamento']);
+const RETOMAVEIS_IA = new Set(['concluida_com_falhas', 'falha', 'cancelada', 'interrompida']);
+
+interface PlanoIa {
+  casoId: Id;
+  decorridoMs: number;
+  cancelamentoPedido: boolean;
+  retomadas: number;
+  blocos: { bloco: BlocoExtracaoIa; sugestoes: SugestaoIa[]; recusas: RecusaIa[] }[];
 }
 
 function clonarExtracao(e: ExtracaoIa, sugestoes: SugestaoIa[]): ExtracaoIa {

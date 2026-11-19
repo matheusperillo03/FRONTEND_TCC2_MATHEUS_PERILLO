@@ -945,7 +945,57 @@ export interface RecusaIa {
   trecho: string;
 }
 
-/** Uma execução da extração sobre uma captura (inclusive as que falharam). */
+/**
+ * Situação de uma execução. A extração roda em segundo plano: nasce `na_fila`,
+ * passa a `em_andamento` e termina em uma das outras. `concluida_com_falhas`:
+ * algum bloco falhou e os demais estão gravados. As quatro últimas podem ser
+ * retomadas (só os blocos pendentes e os que falharam são processados).
+ */
+export type SituacaoExtracaoIa = 'na_fila' | 'em_andamento' | 'sucesso' | 'concluida_com_falhas' | 'falha' | 'cancelada' | 'interrompida';
+
+/** Um bloco do texto do documento numa execução. */
+export interface BlocoExtracaoIa {
+  numero: number;
+  situacao: 'pendente' | 'em_andamento' | 'concluido' | 'falho' | string;
+  caracteres: number;
+  tentativas: number;
+  /** Código da falha (`tempo_esgotado`, `travamento`, `conexao`, `saida_cortada`, `json_invalido`...). */
+  causa: string;
+  duracao_ms: number;
+  /** Bloco que foi dividido ao meio e deu origem a este. */
+  pai_numero: number | null;
+}
+
+/** `GET /casos/{id}/extracoes-ia/{eid}/progresso`: só números e códigos, nenhum texto do documento. */
+export interface ProgressoExtracaoIa {
+  id: Id;
+  captura_id: Id;
+  situacao: SituacaoExtracaoIa | string;
+  motivo: string;
+  /** Na fila ou em andamento. */
+  ativa: boolean;
+  retomavel: boolean;
+  cancelamento_pedido: boolean;
+  /** Só para `na_fila`: 1 é a próxima a ser processada. */
+  posicao_na_fila: number | null;
+  blocos_total: number;
+  blocos_concluidos: number;
+  blocos_falhos: number;
+  blocos_pendentes: number;
+  bloco_atual: number | null;
+  itens_recebidos: number;
+  itens_aceitos: number;
+  itens_recusados: number;
+  tempo_decorrido_ms: number;
+  /** `null` antes do primeiro bloco concluído e depois do fim. */
+  estimativa_restante_ms: number | null;
+  retomadas: number;
+  iniciado_em: string;
+  concluido_em: string | null;
+  blocos: BlocoExtracaoIa[];
+}
+
+/** Uma execução da extração sobre uma captura (inclusive as que falharam e as que ainda estão rodando). */
 export interface ExtracaoIa {
   id: Id;
   captura_id: Id;
@@ -966,7 +1016,9 @@ export interface ExtracaoIa {
   usuario: string;
   iniciado_em: string;
   concluido_em: string | null;
-  /** Preenchida só na resposta da execução; vazia em `GET /casos/{id}/extracoes-ia`. */
+  /** Andamento da execução (ausente em respostas de versões anteriores do back-end). */
+  progresso?: ProgressoExtracaoIa | null;
+  /** Vazia em `GET /casos/{id}/extracoes-ia` e na resposta do pedido (a execução ainda não rodou). */
   sugestoes: SugestaoIa[];
 }
 
@@ -1196,8 +1248,19 @@ export interface ApiCliente {
   // ---- horizonte 3: extração assistida por IA local (H22) ----
   /** Não é dado de caso: exige só o token. */
   estadoIa(): Promise<IaEstado>;
-  /** Roda o modelo local sobre o texto da captura (409 com a IA desligada; 502 se a extração falhar). */
+  /**
+   * Põe na fila a extração do modelo local sobre o texto da captura (`202`): a
+   * resposta é a execução `na_fila`, sem sugestões. O processamento roda fora da
+   * requisição; acompanhe por `progressoExtracaoIa`. `409` com a IA desligada,
+   * captura não íntegra ou outra execução ativa para o mesmo documento.
+   */
   extrairComIa(casoId: Id, capturaId: Id): Promise<ExtracaoIa>;
+  /** Andamento da execução, para consulta periódica (não entra na auditoria). */
+  progressoExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa>;
+  /** Cancela a execução; os blocos já concluídos ficam gravados. `409` se ela já terminou. */
+  cancelarExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa>;
+  /** Devolve à fila uma execução parada; só os blocos pendentes e os que falharam são processados. */
+  retomarExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa>;
   listarExtracoesIa(casoId: Id): Promise<ExtracaoIa[]>;
   listarSugestoesIa(casoId: Id, filtro?: FiltroSugestoesIa): Promise<SugestaoIa[]>;
   /** Aceita ou recusa a sugestão, com justificativa. A decisão é única (409 se já decidida). */

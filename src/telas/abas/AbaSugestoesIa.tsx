@@ -1,12 +1,15 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
   mensagemDeErro,
   mesmoId,
+  type ApiCliente,
+  type BlocoExtracaoIa,
   type ColetaRegistro,
   type DecisaoSugestaoIaValor,
   type ExtracaoIa,
   type IaEstado,
   type Id,
+  type ProgressoExtracaoIa,
   type SituacaoSugestaoIa,
   type SugestaoIa,
   type TextoCaptura,
@@ -36,6 +39,165 @@ export function rotuloRecusaIa(motivo: string): string {
   return ROTULOS_RECUSA[motivo] ?? motivo;
 }
 
+const ROTULOS_EXECUCAO: Record<string, string> = {
+  na_fila: 'na fila',
+  em_andamento: 'em andamento',
+  sucesso: 'concluída',
+  concluida_com_falhas: 'concluída com falhas',
+  falha: 'falhou',
+  cancelada: 'cancelada',
+  interrompida: 'interrompida',
+};
+
+export function rotuloExecucaoIa(situacao: string): string {
+  return ROTULOS_EXECUCAO[situacao] ?? situacao;
+}
+
+const ROTULOS_BLOCO: Record<string, string> = { pendente: 'aguardando', em_andamento: 'em andamento', concluido: 'concluído', falho: 'falhou' };
+
+/** Causas de falha de um bloco, como o back-end as registra. */
+const ROTULOS_CAUSA: Record<string, string> = {
+  tempo_esgotado: 'passou do tempo limite do bloco',
+  travamento: 'o modelo parou de responder',
+  conexao: 'o servidor do modelo não respondeu',
+  http: 'o servidor do modelo devolveu erro',
+  resposta_invalida: 'resposta inválida do servidor do modelo',
+  saida_cortada: 'a saída do modelo foi cortada pelo limite de tokens',
+  json_invalido: 'a resposta do modelo não seguiu o formato esperado',
+  modelo_recusado: 'o modelo configurado foi recusado',
+};
+
+export function rotuloCausaIa(causa: string): string {
+  return ROTULOS_CAUSA[causa] ?? causa;
+}
+
+/** Duração para leitura: "45 s", "3 min 05 s", "1 h 12 min". */
+export function formatarDuracao(ms: number): string {
+  const segundos = Math.max(0, Math.round(ms / 1000));
+  if (segundos < 60) return `${segundos} s`;
+  const minutos = Math.floor(segundos / 60);
+  if (minutos < 60) return `${minutos} min ${String(segundos % 60).padStart(2, '0')} s`;
+  return `${Math.floor(minutos / 60)} h ${String(minutos % 60).padStart(2, '0')} min`;
+}
+
+/** Intervalo padrão da consulta do andamento e teto de falhas seguidas antes de parar de consultar. */
+const INTERVALO_ANDAMENTO_MS = 3000;
+const MAX_FALHAS_DE_CONSULTA = 5;
+
+interface Acompanhamento {
+  /** Andamento por id da execução (as ativas ao abrir a aba e as iniciadas ou retomadas nela). */
+  andamentos: Record<string, ProgressoExtracaoIa>;
+  /** Falha ao consultar o andamento, por id. A consulta continua até `MAX_FALHAS_DE_CONSULTA`. */
+  erros: Record<string, string>;
+  /** Consulta desistida depois de falhas seguidas, por id. */
+  paradas: Record<string, boolean>;
+  acompanhar: (progresso: ProgressoExtracaoIa) => void;
+  dispensar: (id: Id) => void;
+}
+
+/**
+ * Acompanha execuções por consulta periódica (*polling*), sem travar a tela:
+ * cada execução ativa é consultada a cada `intervaloMs`, uma chamada por vez.
+ * `aoAvancar` é chamado quando um bloco termina (há sugestões novas) e
+ * `aoTerminar`, quando a execução deixa de estar ativa.
+ */
+function useAcompanhamento(
+  cliente: ApiCliente,
+  casoId: Id,
+  intervaloMs: number,
+  aoAvancar: (progresso: ProgressoExtracaoIa) => void,
+  aoTerminar: (progresso: ProgressoExtracaoIa) => void,
+): Acompanhamento {
+  const [andamentos, setAndamentos] = useState<Record<string, ProgressoExtracaoIa>>({});
+  const [erros, setErros] = useState<Record<string, string>>({});
+  const [paradas, setParadas] = useState<Record<string, boolean>>({});
+  const temporizadores = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const ultimos = useRef(new Map<string, ProgressoExtracaoIa>());
+  const falhas = useRef(new Map<string, number>());
+  const vivo = useRef(true);
+  const retornos = useRef({ aoAvancar, aoTerminar });
+  retornos.current = { aoAvancar, aoTerminar };
+
+  const receber = useCallback((progresso: ProgressoExtracaoIa) => {
+    const id = String(progresso.id);
+    const anterior = ultimos.current.get(id);
+    ultimos.current.set(id, progresso);
+    setAndamentos((a) => ({ ...a, [id]: progresso }));
+    const feitos = (p: ProgressoExtracaoIa) => p.blocos_concluidos + p.blocos_falhos;
+    if (anterior && (feitos(progresso) !== feitos(anterior) || progresso.itens_aceitos !== anterior.itens_aceitos)) retornos.current.aoAvancar(progresso);
+    if (anterior?.ativa && !progresso.ativa) retornos.current.aoTerminar(progresso);
+  }, []);
+
+  const agendar = useCallback(
+    (id: string) => {
+      if (!vivo.current) return;
+      clearTimeout(temporizadores.current.get(id));
+      temporizadores.current.set(
+        id,
+        setTimeout(async () => {
+          let progresso: ProgressoExtracaoIa | null = null;
+          try {
+            progresso = await cliente.progressoExtracaoIa(casoId, id);
+          } catch (e) {
+            if (!vivo.current) return;
+            const seguidas = (falhas.current.get(id) ?? 0) + 1;
+            falhas.current.set(id, seguidas);
+            setErros((x) => ({ ...x, [id]: mensagemDeErro(e) }));
+            if (seguidas >= MAX_FALHAS_DE_CONSULTA) {
+              temporizadores.current.delete(id);
+              setParadas((x) => ({ ...x, [id]: true }));
+              return;
+            }
+          }
+          if (!vivo.current) return;
+          if (progresso) {
+            falhas.current.delete(id);
+            setErros((x) => (id in x ? Object.fromEntries(Object.entries(x).filter(([chave]) => chave !== id)) : x));
+            receber(progresso);
+            if (!progresso.ativa) {
+              temporizadores.current.delete(id);
+              return;
+            }
+          }
+          agendar(id);
+        }, intervaloMs),
+      );
+    },
+    [cliente, casoId, intervaloMs, receber],
+  );
+
+  const acompanhar = useCallback(
+    (progresso: ProgressoExtracaoIa) => {
+      const id = String(progresso.id);
+      falhas.current.delete(id);
+      setParadas((x) => ({ ...x, [id]: false }));
+      receber(progresso);
+      if (progresso.ativa) agendar(id);
+    },
+    [agendar, receber],
+  );
+
+  const dispensar = useCallback((id: Id) => {
+    const chave = String(id);
+    clearTimeout(temporizadores.current.get(chave));
+    temporizadores.current.delete(chave);
+    ultimos.current.delete(chave);
+    setAndamentos((a) => Object.fromEntries(Object.entries(a).filter(([k]) => k !== chave)));
+  }, []);
+
+  useEffect(() => {
+    vivo.current = true;
+    const pendentes = temporizadores.current;
+    return () => {
+      vivo.current = false;
+      pendentes.forEach((t) => clearTimeout(t));
+      pendentes.clear();
+    };
+  }, []);
+
+  return { andamentos, erros, paradas, acompanhar, dispensar };
+}
+
 /** Fontes de coleta cujas capturas são documentos de texto (onde a extração se aplica). */
 const FONTES_DE_DOCUMENTO = new Set(['edital_arquivo']);
 
@@ -48,14 +210,20 @@ export interface AbaSugestoesIaProps {
   aoAbrirEntidade?: (id: Id) => void;
   /** Avisa a tela do caso para atualizar as contagens do cabeçalho. */
   aoMudar?: () => void;
+  /** Intervalo da consulta do andamento das execuções (os testes usam um valor curto). */
+  intervaloAndamentoMs?: number;
 }
 
 /**
  * Extração assistida por IA local (RF13, RNF05, H22): revisão lado a lado. À
  * esquerda, as sugestões; à direita, o texto do documento com o trecho citado
  * em destaque. Nada vira entidade sem a decisão de um investigador.
+ *
+ * A extração roda em segundo plano no servidor: o botão só a põe na fila, e a
+ * tela acompanha o andamento por consulta periódica. As sugestões aparecem
+ * conforme os blocos do documento terminam, e a tela continua utilizável.
  */
-export function AbaSugestoesIa({ casoId, ia, capturaInicial = null, aoAbrirEntidade, aoMudar }: AbaSugestoesIaProps) {
+export function AbaSugestoesIa({ casoId, ia, capturaInicial = null, aoAbrirEntidade, aoMudar, intervaloAndamentoMs = INTERVALO_ANDAMENTO_MS }: AbaSugestoesIaProps) {
   const { cliente } = useSessao();
   const { podeEscrever, motivoSomenteLeitura } = usePapelNoCaso();
   const sugestoes = useChamada<SugestaoIa[]>();
@@ -68,14 +236,35 @@ export function AbaSugestoesIa({ casoId, ia, capturaInicial = null, aoAbrirEntid
   const [captura, setCaptura] = useState<string>(capturaInicial == null ? '' : String(capturaInicial));
   /** Sugestões devolvidas pela decisão, por id: substituem as da lista sem nova consulta. */
   const [decididas, setDecididas] = useState<Record<string, SugestaoIa>>({});
+  /** Erro e ação em curso dos botões de cancelar e retomar, por id da execução. */
+  const [erroDaAcao, setErroDaAcao] = useState<Record<string, string>>({});
+  const [acaoEmCurso, setAcaoEmCurso] = useState<Record<string, 'cancelar' | 'retomar'>>({});
 
   const carregarSugestoes = () => sugestoes.executar(() => cliente.listarSugestoesIa(casoId));
   const carregarExtracoes = () => extracoes.executar(() => cliente.listarExtracoesIa(casoId));
 
+  const { andamentos, erros, paradas, acompanhar, dispensar } = useAcompanhamento(
+    cliente,
+    casoId,
+    intervaloAndamentoMs,
+    // Um bloco terminou: as sugestões dele já existem no servidor.
+    () => {
+      void carregarSugestoes();
+      aoMudar?.();
+    },
+    () => {
+      void carregarSugestoes();
+      void carregarExtracoes();
+      aoMudar?.();
+    },
+  );
+
   useEffect(() => {
     void carregarSugestoes();
-    void carregarExtracoes();
     void coletas.executar(() => cliente.listarColetas(casoId));
+    // As execuções que já estavam na fila ou em andamento (de outra sessão, ou de antes de
+    // recarregar a página) passam a ser acompanhadas.
+    void carregarExtracoes().then((lista) => (lista ?? []).forEach((e) => e.progresso?.ativa && acompanhar(e.progresso)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliente, casoId]);
 
@@ -103,17 +292,35 @@ export function AbaSugestoesIa({ casoId, ia, capturaInicial = null, aoAbrirEntid
     ]),
   ];
   const capturaEscolhida = captura || capturasDeDocumento[0] || '';
+  const acompanhadas = Object.values(andamentos).sort((a, b) => (a.iniciado_em < b.iniciado_em ? 1 : -1));
+  /** Execução na fila ou em andamento para o documento escolhido: só uma por documento. */
+  const ativaDoDocumento = acompanhadas.find((p) => p.ativa && mesmoId(p.captura_id, capturaEscolhida)) ?? null;
 
   async function extrair(e: FormEvent) {
     e.preventDefault();
-    if (!capturaEscolhida || !ia?.ativa || !podeEscrever) return;
+    if (!capturaEscolhida || !ia?.ativa || !podeEscrever || ativaDoDocumento) return;
+    // O pedido volta na hora (202): a execução entra na fila e passa a ser acompanhada.
     const r = await extracao.executar(() => cliente.extrairComIa(casoId, capturaEscolhida));
-    // Mesmo quando a extração falha (502), ela fica registrada: a lista de execuções mostra o motivo.
-    await Promise.all([carregarSugestoes(), carregarExtracoes()]);
-    if (r) {
+    void carregarExtracoes();
+    if (r?.progresso) {
       setFiltro('pendente');
-      setSelecionada(r.sugestoes[0]?.id ?? null);
-      aoMudar?.();
+      acompanhar(r.progresso);
+    }
+  }
+
+  async function acionar(acao: 'cancelar' | 'retomar', id: Id) {
+    const chave = String(id);
+    if (!podeEscrever || acaoEmCurso[chave]) return;
+    setAcaoEmCurso((a) => ({ ...a, [chave]: acao }));
+    setErroDaAcao((x) => Object.fromEntries(Object.entries(x).filter(([k]) => k !== chave)));
+    try {
+      const progresso = acao === 'cancelar' ? await cliente.cancelarExtracaoIa(casoId, id) : await cliente.retomarExtracaoIa(casoId, id);
+      acompanhar(progresso);
+      if (acao === 'retomar' || !progresso.ativa) void carregarExtracoes();
+    } catch (e) {
+      setErroDaAcao((x) => ({ ...x, [chave]: mensagemDeErro(e) }));
+    } finally {
+      setAcaoEmCurso((a) => Object.fromEntries(Object.entries(a).filter(([k]) => k !== chave)));
     }
   }
 
@@ -161,24 +368,50 @@ export function AbaSugestoesIa({ casoId, ia, capturaInicial = null, aoAbrirEntid
               ))}
             </select>
           </Campo>
-          <button type="submit" className="br-button primary small" disabled={!capturaEscolhida || extracao.carregando || !podeEscrever} title={motivoSomenteLeitura ?? undefined}>
-            {extracao.carregando ? 'Extraindo…' : 'Extrair com IA'}
+          <button
+            type="submit"
+            className="br-button primary small"
+            disabled={!capturaEscolhida || extracao.carregando || !podeEscrever || ativaDoDocumento !== null}
+            title={motivoSomenteLeitura ?? undefined}
+          >
+            {extracao.carregando ? 'Enviando o pedido…' : 'Extrair com IA'}
           </button>
           {motivoSomenteLeitura && (
             <span className="campo-dica" data-testid="ia-somente-leitura">
               {motivoSomenteLeitura}
             </span>
           )}
+          {ativaDoDocumento && (
+            <span className="campo-dica" data-testid="ia-documento-ocupado">
+              Este documento já tem uma extração {rotuloExecucaoIa(ativaDoDocumento.situacao)}. Acompanhe abaixo; para recomeçar, cancele-a antes.
+            </span>
+          )}
         </form>
       )}
-      {extracao.carregando && <Carregando texto="O modelo local está lendo o documento. Pode levar alguns minutos." />}
       {extracao.erro && <Mensagem tipo="erro">{extracao.erro}</Mensagem>}
-      {extracao.dados && (
-        <Mensagem tipo="ok">
-          Extração {String(extracao.dados.id)} concluída: {contar(extracao.dados.itens_recebidos, 'item devolvido', 'itens devolvidos')} pelo modelo,{' '}
-          {extracao.dados.itens_aceitos} {extracao.dados.itens_aceitos === 1 ? 'virou sugestão pendente' : 'viraram sugestões pendentes'} e{' '}
-          {extracao.dados.itens_recusados} {extracao.dados.itens_recusados === 1 ? 'foi recusado' : 'foram recusados'} automaticamente (veja os motivos em &quot;Execuções da extração&quot;).
-        </Mensagem>
+
+      {acompanhadas.length > 0 && (
+        <section aria-labelledby="andamento-ia-titulo" className="andamento-ia">
+          <h3 id="andamento-ia-titulo">Andamento da extração</h3>
+          <p className="mudo">
+            A extração roda em segundo plano no servidor, um documento por vez. Pode levar vários minutos em documentos longos: você pode continuar
+            usando o sistema, sair desta aba e voltar depois. As sugestões aparecem conforme cada bloco do documento termina.
+          </p>
+          {acompanhadas.map((p) => (
+            <AndamentoExtracao
+              key={String(p.id)}
+              progresso={p}
+              erroDeConsulta={erros[String(p.id)] ?? null}
+              consultaParada={paradas[String(p.id)] ?? false}
+              erroDaAcao={erroDaAcao[String(p.id)] ?? null}
+              acaoEmCurso={acaoEmCurso[String(p.id)] ?? null}
+              aoCancelar={() => void acionar('cancelar', p.id)}
+              aoRetomar={() => void acionar('retomar', p.id)}
+              aoConsultarDeNovo={() => acompanhar(p)}
+              aoDispensar={() => dispensar(p.id)}
+            />
+          ))}
+        </section>
       )}
 
       <div className="painel-cabecalho">
@@ -234,9 +467,19 @@ export function AbaSugestoesIa({ casoId, ia, capturaInicial = null, aoAbrirEntid
         {extracoes.carregando && !extracoes.dados && <Carregando />}
         {extracoes.erro && <Mensagem tipo="erro">{extracoes.erro}</Mensagem>}
         {extracoes.dados && extracoes.dados.length === 0 && <p className="vazio">Nenhuma extração feita neste caso.</p>}
-        {(extracoes.dados ?? []).map((e, i) => (
-          <ExecucaoIa key={String(e.id)} extracao={e} aberta={i === 0} />
-        ))}
+        {(extracoes.dados ?? []).map((e, i) => {
+          // O andamento acompanhado nesta tela é mais novo que o da lista.
+          const progresso = andamentos[String(e.id)] ?? e.progresso ?? null;
+          return (
+            <ExecucaoIa
+              key={String(e.id)}
+              extracao={e}
+              progresso={progresso}
+              aberta={i === 0}
+              aoRetomar={progresso?.retomavel && ia?.ativa && podeEscrever && !acaoEmCurso[String(e.id)] ? () => void acionar('retomar', e.id) : undefined}
+            />
+          );
+        })}
       </section>
     </div>
   );
@@ -429,15 +672,176 @@ export function DocumentoComTrecho({ sugestao, texto }: { sugestao: SugestaoIa; 
   );
 }
 
-function ExecucaoIa({ extracao: e, aberta }: { extracao: ExtracaoIa; aberta: boolean }) {
+interface AndamentoExtracaoProps {
+  progresso: ProgressoExtracaoIa;
+  erroDeConsulta: string | null;
+  consultaParada: boolean;
+  erroDaAcao: string | null;
+  acaoEmCurso: 'cancelar' | 'retomar' | null;
+  aoCancelar: () => void;
+  aoRetomar: () => void;
+  aoConsultarDeNovo: () => void;
+  aoDispensar: () => void;
+}
+
+/** Texto do bloco para quem não vê a cor: "Bloco 3: falhou (passou do tempo limite do bloco), 2 tentativas". */
+function descricaoDoBloco(b: BlocoExtracaoIa): string {
+  const partes = [`Bloco ${b.numero}: ${ROTULOS_BLOCO[b.situacao] ?? b.situacao}`];
+  if (b.situacao === 'falho' && b.causa) partes[0] += ` (${rotuloCausaIa(b.causa)})`;
+  if (b.tentativas > 1) partes.push(`${b.tentativas} tentativas`);
+  if (b.duracao_ms > 0) partes.push(formatarDuracao(b.duracao_ms));
+  if (b.pai_numero != null) partes.push(`metade do bloco ${b.pai_numero}, que foi dividido`);
+  return partes.join(', ');
+}
+
+/** Barra de progresso por bloco, tempo, estimativa e os botões de cancelar e retomar de uma execução. */
+export function AndamentoExtracao({ progresso: p, erroDeConsulta, consultaParada, erroDaAcao, acaoEmCurso, aoCancelar, aoRetomar, aoConsultarDeNovo, aoDispensar }: AndamentoExtracaoProps) {
+  const { podeEscrever, motivoSomenteLeitura } = usePapelNoCaso();
+  const idBarra = useId();
+  const feitos = p.blocos_concluidos + p.blocos_falhos;
+  const falhos = p.blocos.filter((b) => b.situacao === 'falho');
+  const semBlocos = p.blocos_total === 0;
+
+  let resumo: string;
+  if (p.situacao === 'na_fila') {
+    resumo = `Na fila${p.posicao_na_fila ? ` (posição ${p.posicao_na_fila})` : ''}. O servidor processa um documento por vez.`;
+  } else if (semBlocos) {
+    resumo = p.ativa ? 'Preparando o documento…' : 'Nenhum bloco foi processado.';
+  } else {
+    resumo = `Blocos concluídos: ${p.blocos_concluidos} de ${p.blocos_total}`;
+    if (p.blocos_falhos > 0) resumo += ` · com falha: ${p.blocos_falhos}`;
+    if (!p.ativa && p.blocos_pendentes > 0) resumo += ` · por fazer: ${p.blocos_pendentes}`;
+  }
+
+  let estimativa: string | null = null;
+  if (p.situacao === 'em_andamento') {
+    estimativa = p.estimativa_restante_ms == null ? 'estimativa depois do primeiro bloco' : `faltam cerca de ${formatarDuracao(p.estimativa_restante_ms)}`;
+  }
+
+  return (
+    <article className={`br-card andamento-extracao andamento-extracao-${p.situacao}`} data-testid="andamento-extracao" aria-label={`Extração ${String(p.id)}`}>
+      <header className="andamento-cabecalho">
+        <span>
+          Extração <code>{String(p.id)}</code> · captura <code>{String(p.captura_id)}</code>
+        </span>
+        <span className={`br-tag small situacao-coleta situacao-coleta-${p.situacao}`}>{rotuloExecucaoIa(p.situacao)}</span>
+      </header>
+
+      <p id={idBarra} className="andamento-rotulo" role="status" data-testid="andamento-resumo">
+        {resumo}
+      </p>
+      {/* Sem blocos ainda (fila ou preparo), a barra fica indeterminada. */}
+      <progress className="andamento-barra" aria-labelledby={idBarra} max={semBlocos ? undefined : p.blocos_total} value={semBlocos ? undefined : feitos} />
+
+      {p.blocos.length > 0 && (
+        <ol className="andamento-blocos" aria-label="Blocos do documento">
+          {p.blocos.map((b) => (
+            <li key={b.numero} className={`andamento-bloco andamento-bloco-${b.situacao}`} title={descricaoDoBloco(b)} data-testid="andamento-bloco">
+              <span aria-hidden="true">{b.numero}</span>
+              <span className="sr-only">{descricaoDoBloco(b)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <p className="mudo" data-testid="andamento-tempo">
+        Tempo de processamento: {formatarDuracao(p.tempo_decorrido_ms)}
+        {estimativa && <> · {estimativa}</>} · {contar(p.itens_aceitos, 'sugestão', 'sugestões')} até agora
+        {p.itens_recusados > 0 && <>, {contar(p.itens_recusados, 'item recusado', 'itens recusados')} automaticamente</>}
+        {p.retomadas > 0 && <> · retomada {contar(p.retomadas, 'vez', 'vezes')}</>}
+      </p>
+
+      {p.situacao === 'sucesso' && <Mensagem tipo="ok">Extração concluída: todos os blocos do documento foram processados. Revise as sugestões abaixo.</Mensagem>}
+      {p.situacao === 'concluida_com_falhas' && (
+        <Mensagem tipo="aviso">
+          <strong>A extração terminou, mas {contar(p.blocos_falhos, 'bloco falhou', 'blocos falharam')}.</strong> As sugestões dos outros blocos estão gravadas e
+          podem ser revisadas. &quot;Retomar&quot; tenta de novo só os blocos que falharam.
+          {falhos.length > 0 && (
+            <ul className="andamento-falhas">
+              {falhos.map((b) => (
+                <li key={b.numero}>
+                  Bloco {b.numero}: {rotuloCausaIa(b.causa)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Mensagem>
+      )}
+      {p.situacao === 'falha' && (
+        <Mensagem tipo="erro">
+          <strong>A extração falhou.</strong> {p.motivo || 'Nenhum bloco foi concluído.'} Depois de corrigir a causa, use &quot;Retomar&quot;.
+        </Mensagem>
+      )}
+      {p.situacao === 'cancelada' && (
+        <Mensagem tipo="info">
+          <strong>Extração cancelada.</strong> Os blocos já concluídos e as sugestões deles continuam gravados. &quot;Retomar&quot; processa os blocos que faltaram.
+        </Mensagem>
+      )}
+      {p.situacao === 'interrompida' && (
+        <Mensagem tipo="aviso">
+          <strong>A extração foi interrompida.</strong> {p.motivo || 'O serviço parou durante a execução.'}
+        </Mensagem>
+      )}
+      {p.ativa && p.cancelamento_pedido && <Mensagem tipo="info">Cancelamento pedido: o modelo para assim que o servidor receber o pedido.</Mensagem>}
+      {erroDeConsulta && !consultaParada && <Mensagem tipo="aviso">Não foi possível consultar o andamento agora ({erroDeConsulta}). A consulta será repetida; a extração continua no servidor.</Mensagem>}
+      {consultaParada && (
+        <Mensagem tipo="erro">
+          A consulta do andamento falhou várias vezes seguidas ({erroDeConsulta ?? 'sem resposta'}). A extração pode continuar rodando no servidor.{' '}
+          <button type="button" className="botao-link" onClick={aoConsultarDeNovo}>
+            Consultar de novo
+          </button>
+        </Mensagem>
+      )}
+      {erroDaAcao && <Mensagem tipo="erro">{erroDaAcao}</Mensagem>}
+
+      <div className="linha">
+        {p.ativa && (
+          <button type="button" className="br-button secondary small" onClick={aoCancelar} disabled={!podeEscrever || p.cancelamento_pedido || acaoEmCurso !== null} title={motivoSomenteLeitura ?? undefined}>
+            {acaoEmCurso === 'cancelar' ? 'Cancelando…' : p.cancelamento_pedido ? 'Cancelamento pedido' : 'Cancelar extração'}
+          </button>
+        )}
+        {p.retomavel && (
+          <button type="button" className="br-button primary small" onClick={aoRetomar} disabled={!podeEscrever || acaoEmCurso !== null} title={motivoSomenteLeitura ?? undefined}>
+            {acaoEmCurso === 'retomar' ? 'Retomando…' : 'Retomar extração'}
+          </button>
+        )}
+        {!p.ativa && (
+          <button type="button" className="br-button secondary small" onClick={aoDispensar}>
+            Fechar este aviso
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ExecucaoIa({ extracao: e, progresso, aberta, aoRetomar }: { extracao: ExtracaoIa; progresso: ProgressoExtracaoIa | null; aberta: boolean; aoRetomar?: () => void }) {
+  // A lista pode estar mais velha que o andamento acompanhado: a situação e as contagens vêm dele.
+  const situacao = progresso?.situacao ?? e.situacao;
+  const motivo = progresso ? progresso.motivo : e.motivo;
+  const aceitos = progresso?.itens_aceitos ?? e.itens_aceitos;
+  const recusados = progresso?.itens_recusados ?? e.itens_recusados;
+  const emCurso = situacao === 'na_fila' || situacao === 'em_andamento';
   return (
     <details className="br-card execucao-ia" open={aberta} data-testid="execucao-ia">
       <summary>
         <code>{String(e.id)}</code> · captura <code>{String(e.captura_id)}</code> · {formatarData(e.iniciado_em)} · por {e.usuario} ·{' '}
-        <span className={`br-tag small situacao-coleta situacao-coleta-${e.situacao}`}>{e.situacao}</span> · {contar(e.itens_aceitos, 'sugestão', 'sugestões')},{' '}
-        {contar(e.itens_recusados, 'recusado')} automaticamente
+        <span className={`br-tag small situacao-coleta situacao-coleta-${situacao}`}>{rotuloExecucaoIa(situacao)}</span> · {contar(aceitos, 'sugestão', 'sugestões')},{' '}
+        {contar(recusados, 'recusado')} automaticamente
       </summary>
-      {e.motivo && <Mensagem tipo="erro">A extração falhou: {e.motivo}</Mensagem>}
+      {motivo && !emCurso && <Mensagem tipo={situacao === 'falha' ? 'erro' : 'aviso'}>{situacao === 'falha' ? 'A extração falhou: ' : ''}{motivo}</Mensagem>}
+      {progresso && progresso.blocos_total > 0 && (
+        <p className="mudo" data-testid="execucao-blocos">
+          Blocos concluídos: {progresso.blocos_concluidos} de {progresso.blocos_total}
+          {progresso.blocos_falhos > 0 && <> · com falha: {progresso.blocos_falhos}</>}
+          {progresso.blocos_pendentes > 0 && <> · por fazer: {progresso.blocos_pendentes}</>} · tempo de processamento: {formatarDuracao(progresso.tempo_decorrido_ms)}
+        </p>
+      )}
+      {aoRetomar && (
+        <button type="button" className="br-button secondary small" onClick={aoRetomar}>
+          Retomar esta extração
+        </button>
+      )}
       <dl className="tipologia-catalogo-dl">
         <dt>Modelo</dt>
         <dd>

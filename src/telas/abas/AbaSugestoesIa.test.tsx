@@ -1,12 +1,12 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ErroApi, type ApiCliente, type IaEstado, type PapelCaso, type SugestaoIa, type TextoCaptura } from '../../api';
+import { ErroApi, type ApiCliente, type ExtracaoIa, type IaEstado, type PapelCaso, type ProgressoExtracaoIa, type SugestaoIa, type TextoCaptura } from '../../api';
 import { TEXTOS_CAPTURA_DEMO } from '../../api/dadosSinteticos';
 import { PapelProvider, papelNoCaso } from '../../sessao/PapelContext';
 import { SessaoProvider } from '../../sessao/SessaoContext';
 import { clienteFalso } from '../../test/clienteFalso';
-import { AbaSugestoesIa, DocumentoComTrecho } from './AbaSugestoesIa';
+import { AbaSugestoesIa, DocumentoComTrecho, formatarDuracao, rotuloCausaIa, rotuloExecucaoIa } from './AbaSugestoesIa';
 
 const IA_ATIVA: IaEstado = { ativa: true, provedor: 'simulado', modelo: 'modelo-sintetico-de-demonstracao', local: true, tipos: ['empresa', 'orgao', 'pessoa', 'valor', 'data', 'objeto'] };
 const IA_DESLIGADA: IaEstado = { ativa: false, provedor: null, modelo: null, local: true, tipos: [] };
@@ -16,14 +16,21 @@ function renderizar(opcoes: { ia?: IaEstado | null; cliente?: ApiCliente; papel?
   const cliente = opcoes.cliente ?? clienteFalso();
   const aoMudar = vi.fn();
   const aoAbrirEntidade = vi.fn();
-  render(
+  const resultado = render(
     <SessaoProvider cliente={cliente}>
       <PapelProvider value={papelNoCaso(opcoes.papel ?? 'investigador')}>
-        <AbaSugestoesIa casoId="caso-1" ia={opcoes.ia === undefined ? IA_ATIVA : opcoes.ia} capturaInicial={opcoes.capturaInicial} aoMudar={aoMudar} aoAbrirEntidade={aoAbrirEntidade} />
+        <AbaSugestoesIa
+          casoId="caso-1"
+          ia={opcoes.ia === undefined ? IA_ATIVA : opcoes.ia}
+          capturaInicial={opcoes.capturaInicial}
+          aoMudar={aoMudar}
+          aoAbrirEntidade={aoAbrirEntidade}
+          intervaloAndamentoMs={5}
+        />
       </PapelProvider>
     </SessaoProvider>,
   );
-  return { usuario, cliente, aoMudar, aoAbrirEntidade };
+  return { usuario, cliente, aoMudar, aoAbrirEntidade, desmontar: resultado.unmount };
 }
 
 const cartao = (valor: string) => screen.getAllByTestId('sugestao-ia').find((c) => c.textContent?.includes(valor))!;
@@ -176,33 +183,47 @@ describe('AbaSugestoesIa — revisão lado a lado (RF13, RNF05, H22)', () => {
     expect(screen.getAllByTestId('sugestao-ia').some((c) => c.textContent?.includes('OMEGA INEXISTENTE'))).toBe(false);
   });
 
-  it('"Extrair com IA" roda a extração na captura escolhida, mostra o resultado e escolhe a primeira sugestão nova', async () => {
+  it('"Extrair com IA" põe a extração na fila e acompanha: as sugestões aparecem conforme os blocos terminam', async () => {
     const { usuario, cliente, aoMudar } = renderizar({ capturaInicial: 'cap-10' });
     await screen.findAllByTestId('sugestao-ia');
     expect(screen.getByLabelText('Captura do documento')).toHaveValue('cap-10');
+    expect(screen.queryByTestId('andamento-extracao')).not.toBeInTheDocument();
     await usuario.click(screen.getByRole('button', { name: 'Extrair com IA' }));
 
-    expect(await screen.findByText(/8 itens devolvidos pelo modelo/)).toHaveTextContent('6 viraram sugestões pendentes e 2 foram recusados');
+    // O painel de andamento aparece logo, e a execução termina sozinha (o simulado conclui um bloco por consulta).
+    const painel = await screen.findByTestId('andamento-extracao');
+    expect(screen.getByText(/A extração roda em segundo plano no servidor/)).toBeInTheDocument();
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 3 de 3'));
+    expect(within(painel).getByText(/Extração concluída: todos os blocos do documento foram processados/)).toBeInTheDocument();
+    expect(within(painel).getByText('concluída')).toBeInTheDocument();
+    expect(within(painel).getByTestId('andamento-tempo')).toHaveTextContent('Tempo de processamento: 2 min 00 s · 6 sugestões até agora, 2 itens recusados automaticamente');
     await waitFor(() => expect(screen.getAllByTestId('sugestao-ia')).toHaveLength(12));
     expect(await screen.findAllByTestId('execucao-ia')).toHaveLength(2);
-    expect(await screen.findByTestId('trecho-destacado')).toHaveTextContent('PREFEITURA SINTETICA DE EXEMPLOPOLIS');
+    await waitFor(() => expect(screen.getAllByTestId('execucao-ia')[0]).toHaveTextContent('concluída · 6 sugestões, 2 recusados automaticamente'));
     expect(aoMudar).toHaveBeenCalled();
     expect((await cliente.listarAuditoria('caso-1')).some((e) => e.acao === 'ia.extrair')).toBe(true);
     // Nenhuma entidade nasceu da extração.
     expect((await cliente.buscarEntidades('caso-1', 'FULANO')).length).toBe(0);
+    // Terminada a execução, o botão volta e o aviso pode ser fechado.
+    expect(screen.getByRole('button', { name: 'Extrair com IA' })).toBeEnabled();
+    await usuario.click(within(painel).getByRole('button', { name: 'Fechar este aviso' }));
+    expect(screen.queryByTestId('andamento-extracao')).not.toBeInTheDocument();
   });
 
-  it('a falha da extração (502) aparece como erro, e a lista de execuções é atualizada', async () => {
+  it('o pedido recusado (409) aparece como erro e nada passa a ser acompanhado', async () => {
     const base = clienteFalso();
     const listarExtracoesIa = vi.fn(() => base.listarExtracoesIa('caso-1'));
     const extrairComIa = vi.fn(async () => {
-      throw new ErroApi(502, '/casos/caso-1/capturas/cap-10/extracao-ia', 'A extração falhou e foi registrada (ext-9): o servidor do modelo não respondeu');
+      throw new ErroApi(409, '/casos/caso-1/capturas/cap-10/extracao-ia', 'Já existe uma extração em andamento ou na fila para este documento (ext-9).');
     });
-    const { usuario } = renderizar({ cliente: clienteFalso({ extrairComIa, listarExtracoesIa }) });
+    const progressoExtracaoIa = vi.fn();
+    const { usuario } = renderizar({ cliente: clienteFalso({ extrairComIa, listarExtracoesIa, progressoExtracaoIa }) });
     await screen.findAllByTestId('sugestao-ia');
     await usuario.click(screen.getByRole('button', { name: 'Extrair com IA' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('A extração falhou e foi registrada (ext-9)');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Já existe uma extração em andamento ou na fila para este documento (ext-9)');
     expect(extrairComIa).toHaveBeenCalledWith('caso-1', 'cap-10');
+    expect(screen.queryByTestId('andamento-extracao')).not.toBeInTheDocument();
+    expect(progressoExtracaoIa).not.toHaveBeenCalled();
     expect(listarExtracoesIa).toHaveBeenCalledTimes(2);
   });
 
@@ -314,5 +335,350 @@ describe('DocumentoComTrecho — o texto do documento', () => {
     expect(documento.textContent).toBe('Pregoeiro: FULANO FICTICIO, CPF ***666666**. Contratada: EMPRESA FICTICIA LTDA.');
     expect(screen.getByTestId('trecho-destacado')).toHaveTextContent('EMPRESA FICTICIA LTDA');
     expect(screen.getByRole('alert')).toHaveTextContent('O SHA-256 desta captura não é o da captura usada na extração');
+  });
+});
+
+// ---- Andamento da extração em segundo plano ---------------------------------
+
+function progresso(parcial: Partial<ProgressoExtracaoIa> = {}): ProgressoExtracaoIa {
+  return {
+    id: 'ext-9',
+    captura_id: 'cap-10',
+    situacao: 'em_andamento',
+    motivo: '',
+    ativa: true,
+    retomavel: false,
+    cancelamento_pedido: false,
+    posicao_na_fila: null,
+    blocos_total: 4,
+    blocos_concluidos: 0,
+    blocos_falhos: 0,
+    blocos_pendentes: 4,
+    bloco_atual: 1,
+    itens_recebidos: 0,
+    itens_aceitos: 0,
+    itens_recusados: 0,
+    tempo_decorrido_ms: 0,
+    estimativa_restante_ms: null,
+    retomadas: 0,
+    iniciado_em: '2026-11-18T12:00:00Z',
+    concluido_em: null,
+    blocos: [],
+    ...parcial,
+  };
+}
+
+/** Blocos de um andamento: uma letra por bloco (c: concluído, f: falho, a: em andamento, p: pendente). */
+function blocos(letras: string, causas: Record<number, string> = {}): ProgressoExtracaoIa['blocos'] {
+  const situacoes: Record<string, string> = { c: 'concluido', f: 'falho', a: 'em_andamento', p: 'pendente' };
+  return [...letras].map((letra, i) => ({
+    numero: i + 1,
+    situacao: situacoes[letra],
+    caracteres: 3000,
+    tentativas: letra === 'p' ? 0 : 1,
+    causa: causas[i + 1] ?? '',
+    duracao_ms: letra === 'c' ? 95_000 : 0,
+    pai_numero: null,
+  }));
+}
+
+function emAndamento(letras: string, extra: Partial<ProgressoExtracaoIa> = {}, causas: Record<number, string> = {}): ProgressoExtracaoIa {
+  const conta = (letra: string) => [...letras].filter((l) => l === letra).length;
+  return progresso({
+    blocos: blocos(letras, causas),
+    blocos_total: letras.length,
+    blocos_concluidos: conta('c'),
+    blocos_falhos: conta('f'),
+    blocos_pendentes: conta('p') + conta('a'),
+    bloco_atual: letras.includes('a') ? letras.indexOf('a') + 1 : null,
+    ...extra,
+  });
+}
+
+function parada(situacao: string, letras: string, extra: Partial<ProgressoExtracaoIa> = {}, causas: Record<number, string> = {}): ProgressoExtracaoIa {
+  return emAndamento(letras, { situacao, ativa: false, retomavel: situacao !== 'sucesso', bloco_atual: null, concluido_em: '2026-11-18T12:30:00Z', ...extra }, causas);
+}
+
+/** Execução como a lista de execuções a devolve, com o andamento dado. */
+function execucao(p: ProgressoExtracaoIa): ExtracaoIa {
+  return {
+    id: p.id,
+    captura_id: p.captura_id,
+    captura_sha256: 'a'.repeat(64),
+    provedor: 'simulado',
+    modelo: 'modelo-sintetico-de-demonstracao',
+    modelo_versao: 'sintetico-0',
+    servidor_versao: '0.0.0-simulado',
+    parametros: {},
+    prompt_sha256: 'b'.repeat(64),
+    situacao: p.situacao,
+    motivo: p.motivo,
+    blocos: p.blocos_total,
+    itens_recebidos: p.itens_recebidos,
+    itens_aceitos: p.itens_aceitos,
+    itens_recusados: p.itens_recusados,
+    recusas: [],
+    usuario: 'analista.demo',
+    iniciado_em: p.iniciado_em,
+    concluido_em: p.concluido_em,
+    progresso: p,
+    sugestoes: [],
+  };
+}
+
+/** Cliente em que o pedido devolve `inicial` e cada consulta do andamento devolve o próximo passo (o último se repete). */
+function clienteComRoteiro(inicial: ProgressoExtracaoIa, passos: (ProgressoExtracaoIa | Error)[], sobrescritas: Partial<ApiCliente> = {}) {
+  let chamada = 0;
+  const progressoExtracaoIa = vi.fn(async () => {
+    const passo = passos[Math.min(chamada++, passos.length - 1)];
+    if (passo instanceof Error) throw passo;
+    return passo;
+  });
+  const extrairComIa = vi.fn(async () => execucao(inicial));
+  return { cliente: clienteFalso({ extrairComIa, progressoExtracaoIa, ...sobrescritas }), progressoExtracaoIa, extrairComIa };
+}
+
+async function iniciar(cliente: ApiCliente, opcoes: { papel?: PapelCaso } = {}) {
+  const tela = renderizar({ cliente, capturaInicial: 'cap-10', ...opcoes });
+  await screen.findAllByTestId('sugestao-ia');
+  await tela.usuario.click(screen.getByRole('button', { name: 'Extrair com IA' }));
+  return { ...tela, painel: await screen.findByTestId('andamento-extracao') };
+}
+
+describe('AbaSugestoesIa — andamento da extração em segundo plano', () => {
+  it('na fila, mostra a posição e uma barra indeterminada; em andamento, a barra por bloco, o tempo e a estimativa', async () => {
+    const fila = progresso({ situacao: 'na_fila', posicao_na_fila: 2, blocos_total: 0, blocos_pendentes: 0, bloco_atual: null });
+    const meio = emAndamento('ccap', { itens_aceitos: 5, tempo_decorrido_ms: 190_000, estimativa_restante_ms: 185_000 });
+    const { cliente } = clienteComRoteiro(fila, [fila, fila, emAndamento('appp'), meio]);
+    const { painel } = await iniciar(cliente);
+
+    expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Na fila (posição 2). O servidor processa um documento por vez.');
+    expect(within(painel).getByText('na fila')).toBeInTheDocument();
+    const barra = within(painel).getByRole('progressbar');
+    expect(barra).not.toHaveAttribute('value');
+    expect(barra).toHaveAccessibleName(/Na fila/);
+
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 2 de 4'));
+    expect(barra).toHaveAttribute('value', '2');
+    expect(barra).toHaveAttribute('max', '4');
+    expect(within(painel).getByText('em andamento')).toBeInTheDocument();
+    expect(within(painel).getByTestId('andamento-tempo')).toHaveTextContent('Tempo de processamento: 3 min 10 s · faltam cerca de 3 min 05 s · 5 sugestões até agora');
+    // Um quadrinho por bloco, com a situação escrita (a cor só reforça).
+    const quadrinhos = within(painel).getAllByTestId('andamento-bloco');
+    expect(quadrinhos.map((q) => q.className.replace('andamento-bloco ', ''))).toEqual([
+      'andamento-bloco-concluido',
+      'andamento-bloco-concluido',
+      'andamento-bloco-em_andamento',
+      'andamento-bloco-pendente',
+    ]);
+    expect(quadrinhos[0]).toHaveTextContent('Bloco 1: concluído, 1 min 35 s');
+    expect(quadrinhos[2]).toHaveTextContent('Bloco 3: em andamento');
+    expect(quadrinhos[3]).toHaveTextContent('Bloco 4: aguardando');
+    // Enquanto roda, o documento não aceita outro pedido, e isso é dito.
+    expect(screen.getByRole('button', { name: 'Extrair com IA' })).toBeDisabled();
+    expect(screen.getByTestId('ia-documento-ocupado')).toHaveTextContent('Este documento já tem uma extração em andamento');
+    expect(within(painel).queryByRole('button', { name: 'Retomar extração' })).not.toBeInTheDocument();
+  });
+
+  it('antes do primeiro bloco concluído, diz que a estimativa ainda não existe', async () => {
+    const { cliente } = clienteComRoteiro(emAndamento('appp'), [emAndamento('appp', { tempo_decorrido_ms: 42_000 })]);
+    const { painel } = await iniciar(cliente);
+    await waitFor(() => expect(within(painel).getByTestId('andamento-tempo')).toHaveTextContent('Tempo de processamento: 42 s · estimativa depois do primeiro bloco · 0 sugestões até agora'));
+    expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 0 de 4');
+  });
+
+  it('a lista de sugestões é recarregada só quando um bloco termina, e a tela continua utilizável durante a extração', async () => {
+    const base = clienteFalso();
+    const listarSugestoesIa = vi.fn(() => base.listarSugestoesIa('caso-1'));
+    const um = emAndamento('capp', { itens_aceitos: 2 });
+    const { cliente, progressoExtracaoIa } = clienteComRoteiro(emAndamento('appp'), [emAndamento('appp'), emAndamento('appp'), um, um, um], { listarSugestoesIa });
+    const { usuario, painel } = await iniciar(cliente);
+    expect(listarSugestoesIa).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 1 de 4'));
+    await waitFor(() => expect(listarSugestoesIa).toHaveBeenCalledTimes(2));
+    // Várias consultas do andamento depois, sem bloco novo: nenhuma outra consulta das sugestões (que é auditada).
+    const consultas = progressoExtracaoIa.mock.calls.length;
+    await waitFor(() => expect(progressoExtracaoIa.mock.calls.length).toBeGreaterThan(consultas + 3));
+    expect(listarSugestoesIa).toHaveBeenCalledTimes(2);
+    // Com a extração em andamento, o investigador revisa e decide normalmente.
+    await usuario.click(within(cartao('R$ 480.000,00')).getByRole('button', { name: 'Ver o trecho no documento' }));
+    expect(await screen.findByTestId('trecho-destacado')).toHaveTextContent('R$ 480.000,00');
+    await usuario.type(screen.getByLabelText('Justificativa da decisão (obrigatória)'), 'Valor confere com o edital');
+    await usuario.click(screen.getByRole('button', { name: 'Aceitar sugestão' }));
+    await waitFor(() => expect(screen.getByTestId('resumo-sugestoes')).toHaveTextContent('5 pendentes de decisão · 1 aceita · 0 recusadas'));
+    expect(within(painel).getByText('em andamento')).toBeInTheDocument();
+  });
+
+  it('cancelar pede a parada, mostra o pedido e depois a execução cancelada, que pode ser retomada', async () => {
+    const meio = emAndamento('capp', { itens_aceitos: 2 });
+    const pedido = { ...meio, cancelamento_pedido: true };
+    const cancelada = parada('cancelada', 'cppp', { itens_aceitos: 2, motivo: 'Cancelada por analista.demo.' });
+    const cancelarExtracaoIa = vi.fn(async () => pedido);
+    const retomarExtracaoIa = vi.fn(async () => emAndamento('cppp', { situacao: 'na_fila', posicao_na_fila: 1, bloco_atual: null, retomadas: 1 }));
+    const { cliente, progressoExtracaoIa } = clienteComRoteiro(meio, [meio], { cancelarExtracaoIa, retomarExtracaoIa });
+    const { usuario, painel } = await iniciar(cliente);
+
+    await usuario.click(within(painel).getByRole('button', { name: 'Cancelar extração' }));
+    expect(cancelarExtracaoIa).toHaveBeenCalledWith('caso-1', 'ext-9');
+    progressoExtracaoIa.mockImplementation(async () => cancelada);
+    await waitFor(() => expect(within(painel).getByText('Extração cancelada.')).toBeInTheDocument());
+    expect(within(painel).getByText('cancelada')).toBeInTheDocument();
+    expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 1 de 4 · por fazer: 3');
+    expect(within(painel).queryByRole('button', { name: /Cancelar/ })).not.toBeInTheDocument();
+    // O documento fica livre de novo.
+    expect(screen.getByRole('button', { name: 'Extrair com IA' })).toBeEnabled();
+
+    // A execução parada não é mais consultada; a retomada volta a consultar.
+    progressoExtracaoIa.mockImplementation(async () => parada('sucesso', 'cccc', { itens_aceitos: 8, retomadas: 1 }));
+    await usuario.click(within(painel).getByRole('button', { name: 'Retomar extração' }));
+    expect(retomarExtracaoIa).toHaveBeenCalledWith('caso-1', 'ext-9');
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 4 de 4'));
+    expect(within(painel).getByTestId('andamento-tempo')).toHaveTextContent('retomada 1 vez');
+    expect(within(painel).queryByRole('button', { name: 'Retomar extração' })).not.toBeInTheDocument();
+  });
+
+  it('enquanto o cancelamento não é atendido, o botão mostra que o pedido foi feito', async () => {
+    const meio = emAndamento('capp');
+    const pedido = { ...meio, cancelamento_pedido: true };
+    const { cliente, progressoExtracaoIa } = clienteComRoteiro(meio, [meio], { cancelarExtracaoIa: vi.fn(async () => pedido) });
+    const { usuario, painel } = await iniciar(cliente);
+    await usuario.click(within(painel).getByRole('button', { name: 'Cancelar extração' }));
+    progressoExtracaoIa.mockImplementation(async () => pedido);
+    expect(await within(painel).findByRole('button', { name: 'Cancelamento pedido' })).toBeDisabled();
+    expect(within(painel).getByText(/Cancelamento pedido: o modelo para assim que o servidor receber o pedido/)).toBeInTheDocument();
+  });
+
+  it('concluída com falhas: diz quais blocos falharam e por quê, mantém as sugestões e oferece retomar', async () => {
+    const causas = { 2: 'tempo_esgotado', 4: 'json_invalido' };
+    const final = parada('concluida_com_falhas', 'cfcf', { itens_aceitos: 4, motivo: '2 de 4 blocos falharam.' }, causas);
+    const { cliente } = clienteComRoteiro(emAndamento('appp'), [final]);
+    const { painel } = await iniciar(cliente);
+    await waitFor(() => expect(within(painel).getByText('concluída com falhas')).toBeInTheDocument());
+    expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 2 de 4 · com falha: 2');
+    expect(within(painel).getByText('A extração terminou, mas 2 blocos falharam.')).toBeInTheDocument();
+    expect(within(painel).getByText('Bloco 2: passou do tempo limite do bloco')).toBeInTheDocument();
+    expect(within(painel).getByText('Bloco 4: a resposta do modelo não seguiu o formato esperado')).toBeInTheDocument();
+    expect(within(painel).getAllByTestId('andamento-bloco')[1]).toHaveTextContent('Bloco 2: falhou (passou do tempo limite do bloco)');
+    expect(within(painel).getByRole('progressbar')).toHaveAttribute('value', '4');
+    expect(within(painel).getByRole('button', { name: 'Retomar extração' })).toBeEnabled();
+  });
+
+  it('falha e interrupção mostram o motivo do servidor', async () => {
+    const falha = parada('falha', '', { blocos_total: 0, motivo: "O modelo 'x' não está instalado no servidor local de IA." });
+    const primeira = await iniciar(clienteComRoteiro(emAndamento(''), [falha]).cliente);
+    await waitFor(() => expect(within(primeira.painel).getByText('falhou')).toBeInTheDocument());
+    expect(within(primeira.painel).getByRole('alert')).toHaveTextContent("A extração falhou. O modelo 'x' não está instalado no servidor local de IA. Depois de corrigir a causa, use \"Retomar\".");
+    primeira.desmontar();
+
+    const interrompida = parada('interrompida', 'ccpp', { motivo: 'O serviço foi reiniciado durante a execução. Os blocos já concluídos estão gravados; retome para processar os que faltam.' });
+    const segunda = await iniciar(clienteComRoteiro(emAndamento('capp'), [interrompida]).cliente);
+    await waitFor(() => expect(within(segunda.painel).getByText('interrompida')).toBeInTheDocument());
+    expect(within(segunda.painel).getByText(/O serviço foi reiniciado durante a execução/)).toBeInTheDocument();
+    expect(within(segunda.painel).getByRole('button', { name: 'Retomar extração' })).toBeInTheDocument();
+  });
+
+  it('se a consulta do andamento falha, avisa e continua consultando; a extração segue no servidor', async () => {
+    const rede = new ErroApi(0, '/progresso', 'Sem resposta do servidor');
+    const { cliente } = clienteComRoteiro(emAndamento('appp'), [rede, rede, emAndamento('ccap'), parada('sucesso', 'cccc')]);
+    const { painel } = await iniciar(cliente);
+    expect(await within(painel).findByText(/Não foi possível consultar o andamento agora/)).toHaveTextContent('A consulta será repetida; a extração continua no servidor.');
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 4 de 4'));
+    expect(within(painel).queryByText(/Não foi possível consultar/)).not.toBeInTheDocument();
+  });
+
+  it('depois de várias falhas seguidas, para de consultar e oferece consultar de novo', async () => {
+    const rede = new ErroApi(0, '/progresso', 'Sem resposta do servidor');
+    const { cliente, progressoExtracaoIa } = clienteComRoteiro(emAndamento('appp'), [rede]);
+    const { usuario, painel } = await iniciar(cliente);
+    expect(await within(painel).findByText(/A consulta do andamento falhou várias vezes seguidas/)).toHaveTextContent('A extração pode continuar rodando no servidor.');
+    expect(progressoExtracaoIa).toHaveBeenCalledTimes(5);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(progressoExtracaoIa).toHaveBeenCalledTimes(5);
+    progressoExtracaoIa.mockImplementation(async () => parada('sucesso', 'cccc'));
+    await usuario.click(within(painel).getByRole('button', { name: 'Consultar de novo' }));
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 4 de 4'));
+  });
+
+  it('ao abrir a aba com uma extração já em andamento, passa a acompanhá-la sem ninguém clicar', async () => {
+    const base = clienteFalso();
+    const rodando = emAndamento('ccap', { tempo_decorrido_ms: 200_000, estimativa_restante_ms: 200_000 });
+    const listarExtracoesIa = vi.fn(async () => [execucao(rodando), ...(await base.listarExtracoesIa('caso-1'))]);
+    const progressoExtracaoIa = vi.fn(async () => emAndamento('cccp'.replace('p', 'a'), { tempo_decorrido_ms: 290_000 }));
+    renderizar({ cliente: clienteFalso({ listarExtracoesIa, progressoExtracaoIa }) });
+    const painel = await screen.findByTestId('andamento-extracao');
+    expect(painel).toHaveAccessibleName('Extração ext-9');
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 3 de 4'));
+    expect(progressoExtracaoIa).toHaveBeenCalledWith('caso-1', 'ext-9');
+    // Na lista de execuções, a mesma execução aparece com o andamento mais novo.
+    expect(screen.getAllByTestId('execucao-ia')[0]).toHaveTextContent('em andamento');
+    expect(screen.getAllByTestId('execucao-blocos')[0]).toHaveTextContent('Blocos concluídos: 3 de 4 · por fazer: 1 · tempo de processamento: 4 min 50 s');
+  });
+
+  it('uma execução parada de outra sessão pode ser retomada pela lista de execuções', async () => {
+    const base = clienteFalso();
+    const antiga = parada('interrompida', 'ccpp', { motivo: 'O serviço foi reiniciado durante a execução.' });
+    const listarExtracoesIa = vi.fn(async () => [execucao(antiga), ...(await base.listarExtracoesIa('caso-1'))]);
+    const retomarExtracaoIa = vi.fn(async () => emAndamento('ccpp', { situacao: 'na_fila', posicao_na_fila: 1, bloco_atual: null, retomadas: 1 }));
+    const progressoExtracaoIa = vi.fn(async () => parada('sucesso', 'cccc', { retomadas: 1 }));
+    const { usuario } = renderizar({ cliente: clienteFalso({ listarExtracoesIa, retomarExtracaoIa, progressoExtracaoIa }) });
+    const linha = (await screen.findAllByTestId('execucao-ia'))[0];
+    expect(linha).toHaveTextContent('interrompida');
+    expect(linha).toHaveTextContent('O serviço foi reiniciado durante a execução.');
+    expect(screen.queryByTestId('andamento-extracao')).not.toBeInTheDocument();
+    await usuario.click(within(linha).getByRole('button', { name: 'Retomar esta extração' }));
+    expect(retomarExtracaoIa).toHaveBeenCalledWith('caso-1', 'ext-9');
+    const painel = await screen.findByTestId('andamento-extracao');
+    await waitFor(() => expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 4 de 4'));
+  });
+
+  it('o erro ao cancelar ou retomar aparece no painel, sem perder o andamento', async () => {
+    const meio = emAndamento('capp');
+    const cancelarExtracaoIa = vi.fn(async () => {
+      throw new ErroApi(409, '/cancelar', "Esta execução está 'sucesso': não há o que cancelar.");
+    });
+    const { cliente } = clienteComRoteiro(meio, [meio], { cancelarExtracaoIa });
+    const { usuario, painel } = await iniciar(cliente);
+    await usuario.click(within(painel).getByRole('button', { name: 'Cancelar extração' }));
+    expect(await within(painel).findByRole('alert')).toHaveTextContent('não há o que cancelar');
+    expect(within(painel).getByTestId('andamento-resumo')).toHaveTextContent('Blocos concluídos: 1 de 4');
+    expect(within(painel).getByRole('button', { name: 'Cancelar extração' })).toBeEnabled();
+  });
+
+  it('o leitor vê o andamento, mas não cancela nem retoma', async () => {
+    const base = clienteFalso({}, 'teste automatizado', { token: 'dev-agente' });
+    const rodando = emAndamento('capp');
+    const parado = parada('cancelada', 'cppp', { id: 'ext-8' });
+    const listarExtracoesIa = vi.fn(async () => [execucao(rodando), execucao(parado), ...(await base.listarExtracoesIa('caso-1'))]);
+    const cliente = clienteFalso({ listarExtracoesIa, progressoExtracaoIa: vi.fn(async () => rodando) }, 'teste automatizado', { token: 'dev-agente' });
+    renderizar({ papel: 'leitor', cliente });
+    const painel = await screen.findByTestId('andamento-extracao');
+    expect(within(painel).getByRole('button', { name: 'Cancelar extração' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Retomar esta extração' })).not.toBeInTheDocument();
+  });
+
+  it('ao sair da aba, a consulta periódica para', async () => {
+    const meio = emAndamento('capp');
+    const { cliente, progressoExtracaoIa } = clienteComRoteiro(meio, [meio]);
+    const { desmontar } = await iniciar(cliente);
+    await waitFor(() => expect(progressoExtracaoIa.mock.calls.length).toBeGreaterThan(1));
+    desmontar();
+    await new Promise((r) => setTimeout(r, 15));
+    const consultas = progressoExtracaoIa.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(progressoExtracaoIa.mock.calls.length).toBe(consultas);
+  });
+
+  it('rótulos e durações são escritos por extenso', () => {
+    expect(formatarDuracao(0)).toBe('0 s');
+    expect(formatarDuracao(59_400)).toBe('59 s');
+    expect(formatarDuracao(60_000)).toBe('1 min 00 s');
+    expect(formatarDuracao(197_000)).toBe('3 min 17 s');
+    expect(formatarDuracao(3_600_000)).toBe('1 h 00 min');
+    expect(formatarDuracao(4_500_000)).toBe('1 h 15 min');
+    expect(formatarDuracao(-5)).toBe('0 s');
+    expect(rotuloExecucaoIa('concluida_com_falhas')).toBe('concluída com falhas');
+    expect(rotuloExecucaoIa('outra')).toBe('outra');
+    expect(rotuloCausaIa('travamento')).toBe('o modelo parou de responder');
+    expect(rotuloCausaIa('causa_nova')).toBe('causa_nova');
   });
 });

@@ -56,6 +56,7 @@ import type {
   NovoMonitoramento,
   NovoUsuario,
   PaginaRegistrosJudiciais,
+  ProgressoExtracaoIa,
   RecoletaResultado,
   Saude,
   SessaoAtual,
@@ -401,6 +402,18 @@ export class ClienteHttp implements ApiCliente {
 
   extrairComIa(casoId: Id, capturaId: Id): Promise<ExtracaoIa> {
     return this.requisitar(`/casos/${enc(casoId)}/capturas/${enc(capturaId)}/extracao-ia`, { metodo: 'POST', exigeJustificativa: true });
+  }
+
+  progressoExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa> {
+    return this.requisitar(`/casos/${enc(casoId)}/extracoes-ia/${enc(extracaoId)}/progresso`, { exigeJustificativa: true });
+  }
+
+  cancelarExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa> {
+    return this.requisitar(`/casos/${enc(casoId)}/extracoes-ia/${enc(extracaoId)}/cancelar`, { metodo: 'POST', exigeJustificativa: true });
+  }
+
+  retomarExtracaoIa(casoId: Id, extracaoId: Id): Promise<ProgressoExtracaoIa> {
+    return this.requisitar(`/casos/${enc(casoId)}/extracoes-ia/${enc(extracaoId)}/retomar`, { metodo: 'POST', exigeJustificativa: true });
   }
 
   listarExtracoesIa(casoId: Id): Promise<ExtracaoIa[]> {
