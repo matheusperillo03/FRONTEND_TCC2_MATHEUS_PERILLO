@@ -268,7 +268,10 @@ export interface RecoletaResultado extends ColetaResultado {
   comparacao: ComparacaoColeta;
 }
 
-export type TipoEntidade = 'empresa' | 'pessoa' | 'orgao' | 'contrato' | 'sancao' | 'candidato' | 'edital' | 'convenio';
+/** Tipos de entidade que a API aceita no filtro `tipo` da busca (`TIPOS_ENTIDADE` do back-end, na mesma ordem). */
+export const TIPOS_ENTIDADE = ['empresa', 'pessoa', 'orgao', 'contrato', 'sancao', 'candidato', 'edital', 'convenio'] as const;
+
+export type TipoEntidade = (typeof TIPOS_ENTIDADE)[number];
 
 export interface EntidadeResumo {
   id: Id;
@@ -1188,7 +1191,8 @@ export interface ApiCliente {
   listarColetas(casoId: Id): Promise<ColetaRegistro[]>;
   /** Repete a coleta e compara as capturas novas com as da coleta original. */
   recoletar(casoId: Id, coletaId: Id): Promise<RecoletaResultado>;
-  buscarEntidades(casoId: Id, q: string): Promise<EntidadeResumo[]>;
+  /** `tipo` ausente: todos os tipos (H09/RF11). */
+  buscarEntidades(casoId: Id, q: string, tipo?: TipoEntidade): Promise<EntidadeResumo[]>;
   obterEntidade(casoId: Id, entidadeId: Id): Promise<EntidadeDetalhe>;
   obterGrafo(casoId: Id, centro: Id, profundidade: number): Promise<Grafo>;
   obterCaminho(casoId: Id, de: Id, para: Id): Promise<Grafo>;

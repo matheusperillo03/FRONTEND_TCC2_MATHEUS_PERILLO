@@ -34,6 +34,19 @@ describe('ClienteMock — mesmas regras do back-end', () => {
     await expect(c.verificarAuditoria()).resolves.toMatchObject({ integra: true, primeira_quebra: null });
   });
 
+  it('H09/RF11: a busca filtra por tipo de entidade, combinada com o termo', async () => {
+    const c = criar();
+    const todas = await c.buscarEntidades('caso-1', '');
+    const empresas = await c.buscarEntidades('caso-1', '', 'empresa');
+    expect(empresas.length).toBeGreaterThan(0);
+    expect(empresas.length).toBeLessThan(todas.length);
+    expect(empresas.every((e) => e.tipo === 'empresa')).toBe(true);
+    expect(empresas).toEqual(todas.filter((e) => e.tipo === 'empresa'));
+    const pessoasAlfa = await c.buscarEntidades('caso-1', 'alfa', 'pessoa');
+    expect(pessoasAlfa.every((e) => e.tipo === 'pessoa')).toBe(true);
+    expect(await c.buscarEntidades('caso-1', '', 'convenio')).toEqual([]);
+  });
+
   it('relatório: entradas de auditoria só para delegado; para analista a lista vem vazia', async () => {
     const analista = JSON.parse(await criar('dev-analista').obterRelatorio('caso-1', 'json'));
     expect(analista.auditoria.entradas_do_caso).toEqual([]);

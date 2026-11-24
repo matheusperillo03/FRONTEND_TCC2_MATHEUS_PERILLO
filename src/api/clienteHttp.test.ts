@@ -40,6 +40,16 @@ describe('ClienteHttp — cabeçalhos do contrato v0', () => {
     expect(url(fetchImpl)).toBe('http://api.teste:8000/casos/caso-1/entidades?q=alfa');
   });
 
+  it('H09/RF11: envia o filtro `tipo` da busca de entidades só quando o investigador escolhe um tipo', async () => {
+    const { cliente, fetchImpl } = criar({ corpo: [] });
+    await cliente.buscarEntidades('caso-1', 'alfa', 'empresa');
+    expect(url(fetchImpl)).toBe('http://api.teste:8000/casos/caso-1/entidades?q=alfa&tipo=empresa');
+    await cliente.buscarEntidades('caso-1', '', 'candidato');
+    expect(url(fetchImpl, 1)).toBe('http://api.teste:8000/casos/caso-1/entidades?tipo=candidato');
+    await cliente.buscarEntidades('caso-1', 'alfa');
+    expect(url(fetchImpl, 2)).not.toContain('tipo=');
+  });
+
   it('mantém acentos do português no cabeçalho e substitui só caracteres fora do Latin-1', () => {
     expect(sanitizarCabecalho('Investigação de vínculos — órgão')).toBe('Investigação de vínculos ? órgão');
     expect(sanitizarCabecalho(' com\nquebra ')).toBe('com quebra');

@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { Captura, EntidadeDetalhe, EntidadeResumo, Id } from '../../api';
+import { TIPOS_ENTIDADE, type Captura, type EntidadeDetalhe, type EntidadeResumo, type Id, type TipoEntidade } from '../../api';
 import { Anotacoes } from '../../componentes/Anotacoes';
 import { Carregando, EtiquetaTipo, Hash, Mensagem, Tabela, TabelaChaveValor, formatarData } from '../../componentes/basicos';
+import { ROTULOS_TIPO_NO } from '../../grafo/mapear';
 import { mascararCpfs } from '../../privacidade';
 import { useSessao } from '../../sessao/SessaoContext';
 import { useChamada } from '../../sessao/useChamada';
@@ -21,13 +22,25 @@ export interface AbaEntidadesProps {
 export function AbaEntidades({ casoId, entidadeInicial, aoVerNoGrafo, aoMonitorar, aoExtrairIa, aoAnotar }: AbaEntidadesProps) {
   const { cliente } = useSessao();
   const [q, setQ] = useState('');
+  // Filtro por tipo (H09/RF11): vazio lista todos os tipos; a API recebe o parâmetro `tipo`.
+  const [tipo, setTipo] = useState<TipoEntidade | ''>('');
   const busca = useChamada<EntidadeResumo[]>();
   // A aba é remontada pelo pai (key) quando a entidade inicial muda.
   const [selecionada, setSelecionada] = useState<Id | null>(entidadeInicial ?? null);
 
+  function executarBusca(tipoEscolhido: TipoEntidade | '') {
+    void busca.executar(() => cliente.buscarEntidades(casoId, q.trim(), tipoEscolhido || undefined));
+  }
+
   function buscar(e: FormEvent) {
     e.preventDefault();
-    void busca.executar(() => cliente.buscarEntidades(casoId, q.trim()));
+    executarBusca(tipo);
+  }
+
+  function trocarTipo(novo: TipoEntidade | '') {
+    setTipo(novo);
+    // Com uma lista já na tela, o filtro vale na hora; antes da primeira busca, só fica escolhido.
+    if (busca.dados) executarBusca(novo);
   }
 
   return (
@@ -36,6 +49,17 @@ export function AbaEntidades({ casoId, entidadeInicial, aoVerNoGrafo, aoMonitora
         <div className="br-input small campo campo-inline">
           <label htmlFor="busca-entidades">Buscar por nome, CNPJ ou CPF parcial</label>
           <input id="busca-entidades" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="deixe vazio para listar todas" />
+        </div>
+        <div className="br-input small campo campo-inline">
+          <label htmlFor="busca-entidades-tipo">Tipo de entidade</label>
+          <select id="busca-entidades-tipo" value={tipo} onChange={(e) => trocarTipo(e.target.value as TipoEntidade | '')}>
+            <option value="">Todos os tipos</option>
+            {TIPOS_ENTIDADE.map((t) => (
+              <option key={t} value={t}>
+                {ROTULOS_TIPO_NO[t]}
+              </option>
+            ))}
+          </select>
         </div>
         <button type="submit" className="br-button primary small" disabled={busca.carregando}>
           Buscar
@@ -46,7 +70,7 @@ export function AbaEntidades({ casoId, entidadeInicial, aoVerNoGrafo, aoMonitora
 
       <div className="entidades-grade">
         <div>
-          {busca.dados && busca.dados.length === 0 && <p className="vazio">Nenhuma entidade encontrada. Faça uma coleta ou altere o termo.</p>}
+          {busca.dados && busca.dados.length === 0 && <p className="vazio">Nenhuma entidade encontrada. Faça uma coleta ou altere o termo ou o tipo.</p>}
           {busca.dados && busca.dados.length > 0 && (
             <Tabela rotulo="Entidades encontradas">
               <thead>
