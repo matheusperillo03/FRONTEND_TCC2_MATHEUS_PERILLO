@@ -15,6 +15,7 @@ import type {
   Anotacao,
   ArestaGrafo,
   Aviso,
+  BemDeclarado,
   Captura,
   Caso,
   ColetaRegistro,
@@ -31,7 +32,7 @@ import type {
   Tipologia,
   TipologiaCatalogo,
 } from './tipos';
-import { TIPOLOGIAS, grupoDaTipologia } from './tipos';
+import { SINAIS_FRACOS, TIPOLOGIAS, grupoDaTipologia } from './tipos';
 
 export const CASO_DEMO: Caso = {
   id: 'caso-1',
@@ -53,6 +54,7 @@ export const CONECTORES_DEMO: Record<string, { nome: string; versao: string }> =
   portal_transparencia: { nome: 'portal_transparencia', versao: '1.0.0' },
   pncp_termos: { nome: 'pncp_termos', versao: '1.0.0' },
   tse_arquivo: { nome: 'tse_arquivo', versao: '1.0.0' },
+  tse_bens: { nome: 'tse_bens', versao: '1.0.0' },
   edital_arquivo: { nome: 'edital_arquivo', versao: '1.0.0' },
 };
 
@@ -198,6 +200,51 @@ export const CAPTURAS: Captura[] = [
     conector_nome: 'portal_transparencia',
     conector_versao: '1.0.0',
   },
+  // ---- Ligação de registros de pessoas (H46, H50 a H52; decisão do autor de 23/11/2026) ----
+  {
+    id: 'cap-15',
+    fonte: 'tse_arquivo',
+    url_ou_arquivo: 'simulado://tse_arquivo/TSE_DIR_BASE/tse/consulta_cand_2020_GO.csv',
+    coletado_em: '2026-11-16T09:15:00Z',
+    sha256: H('cap-15'),
+    metadados: { arquivo: 'consulta_cand_2020_GO.csv', codificacao: 'utf-8', linhas: 1, simulado: true },
+    tamanho_bytes: 1024,
+    conector_nome: 'tse_arquivo',
+    conector_versao: '1.0.0',
+  },
+  {
+    id: 'cap-16',
+    fonte: 'tse_bens',
+    url_ou_arquivo: 'simulado://tse_bens/TSE_DIR_BASE/tse/bens/bem_candidato_2020_GO.csv',
+    coletado_em: '2026-11-16T09:16:01Z',
+    sha256: H('cap-16'),
+    metadados: { arquivo: 'bem_candidato_2020_GO.csv', codificacao: 'utf-8', linhas: 2, simulado: true },
+    tamanho_bytes: 612,
+    conector_nome: 'tse_bens',
+    conector_versao: '1.0.0',
+  },
+  {
+    id: 'cap-17',
+    fonte: 'tse_bens',
+    url_ou_arquivo: 'simulado://tse_bens/TSE_DIR_BASE/tse/bens/bem_candidato_2024_GO.csv',
+    coletado_em: '2026-11-16T09:16:02Z',
+    sha256: H('cap-17'),
+    metadados: { arquivo: 'bem_candidato_2024_GO.csv', codificacao: 'utf-8', linhas: 4, simulado: true },
+    tamanho_bytes: 1180,
+    conector_nome: 'tse_bens',
+    conector_versao: '1.0.0',
+  },
+  {
+    id: 'cap-18',
+    fonte: 'tse_arquivo',
+    url_ou_arquivo: 'simulado://tse_arquivo/TSE_DIR_BASE/tse/despesas_contratadas_candidatos_2024_GO.csv',
+    coletado_em: '2026-11-16T09:15:03Z',
+    sha256: H('cap-18'),
+    metadados: { arquivo: 'despesas_contratadas_candidatos_2024_GO.csv', codificacao: 'utf-8', linhas: 1, simulado: true },
+    tamanho_bytes: 890,
+    conector_nome: 'tse_arquivo',
+    conector_versao: '1.0.0',
+  },
 ];
 
 /**
@@ -334,6 +381,24 @@ export const COLETAS_DEMO: ColetaRegistro[] = [
     captura_ids: ['cap-10'],
   },
   {
+    // H50: bens declarados ao TSE pelas candidaturas do caso (`do_caso` já trocado pelos SQ_CANDIDATO).
+    id: 'col-14',
+    fonte: 'tse_bens',
+    parametros: { diretorio: 'tse/bens', uf: 'GO', candidatos: ['800002', '900001', '900002'] },
+    conector_nome: 'tse_bens',
+    conector_versao: '1.0.0',
+    situacao: 'sucesso',
+    tentativas: 1,
+    motivo: '',
+    registros: 6,
+    avisos: [],
+    usuario: 'analista.demo',
+    iniciado_em: '2026-11-16T09:16:00Z',
+    concluido_em: '2026-11-16T09:16:02Z',
+    recoleta_de: null,
+    captura_ids: ['cap-16', 'cap-17'],
+  },
+  {
     id: 'col-8',
     fonte: 'tse_arquivo',
     parametros: { diretorio: 'tse', uf: 'GO', municipio: 'EXEMPLOPOLIS' },
@@ -342,13 +407,13 @@ export const COLETAS_DEMO: ColetaRegistro[] = [
     situacao: 'sucesso',
     tentativas: 1,
     motivo: '',
-    registros: 3,
+    registros: 6,
     avisos: ['1 receita de "Recursos próprios" foi ignorada (o doador é o próprio candidato).'],
     usuario: 'analista.demo',
     iniciado_em: '2026-11-16T09:15:00Z',
     concluido_em: '2026-11-16T09:15:02Z',
     recoleta_de: null,
-    captura_ids: ['cap-9', 'cap-8'],
+    captura_ids: ['cap-15', 'cap-9', 'cap-8', 'cap-18'],
   },
   {
     id: 'col-7',
@@ -580,6 +645,7 @@ export const ENTIDADES: EntidadeDetalhe[] = [
     fontes: [{ captura_id: 'cap-2', fonte: 'cnpj_arquivo', url_ou_arquivo: CAPTURAS[1].url_ou_arquivo }],
     sugestoes: [
       {
+        id: 'sgr-1',
         entidade_id: 'pes-3',
         rotulo: 'JOÃO EXEMPLO DA SILVA',
         identificador: '***987654**',
@@ -599,7 +665,25 @@ export const ENTIDADES: EntidadeDetalhe[] = [
       qualificacao: 'Sócia',
     },
     fontes: [{ captura_id: 'cap-2', fonte: 'cnpj_arquivo', url_ou_arquivo: CAPTURAS[1].url_ou_arquivo }],
-    sugestoes: [],
+    sugestoes: [
+      {
+        id: 'sgr-7',
+        entidade_id: 'cand-3',
+        rotulo: 'MARIA EXEMPLO SOUZA',
+        identificador: '2024:900002',
+        tipo: 'candidato',
+        motivo:
+          "Possível coincidência entre candidato e sócio ou fornecedor pessoa física: mesmo nome normalizado 'MARIA EXEMPLO SOUZA' e mesmos seis dígitos " +
+          'visíveis do CPF (***234567**). Seis dígitos e o nome não identificam uma pessoa: é uma sugestão para o investigador confirmar ou descartar, ' +
+          'e os registros não foram fundidos.',
+        confianca: 0.9,
+        criado_em: '2026-11-16T09:15:01Z',
+        situacao: 'pendente',
+        decidido_por: null,
+        decidido_em: null,
+        justificativa_decisao: null,
+      },
+    ],
   },
   {
     id: 'pes-3',
@@ -614,6 +698,7 @@ export const ENTIDADES: EntidadeDetalhe[] = [
     fontes: [{ captura_id: 'cap-2', fonte: 'cnpj_arquivo', url_ou_arquivo: CAPTURAS[1].url_ou_arquivo }],
     sugestoes: [
       {
+        id: 'sgr-2',
         entidade_id: 'pes-1',
         rotulo: 'JOÃO EXEMPLO DA SILVA',
         identificador: '***123456**',
@@ -783,6 +868,7 @@ export const ENTIDADES: EntidadeDetalhe[] = [
     fontes: [fonteDe('cap-2')],
     sugestoes: [
       {
+        id: 'sgr-3',
         entidade_id: 'pes-6',
         rotulo: 'RICARDO FICTICIO LIMA',
         identificador: '***666666**',
@@ -790,6 +876,7 @@ export const ENTIDADES: EntidadeDetalhe[] = [
         confianca: 0.9,
       },
       {
+        id: 'sgr-4',
         entidade_id: 'pes-7',
         rotulo: 'RICARDO FICTICIO LIMA',
         identificador: '***666666**',
@@ -815,6 +902,7 @@ export const ENTIDADES: EntidadeDetalhe[] = [
     fontes: [fonteDe('cap-6')],
     sugestoes: [
       {
+        id: 'sgr-5',
         entidade_id: 'pes-5',
         rotulo: 'RICARDO FICTICIO LIMA',
         identificador: '***666666**',
@@ -836,6 +924,7 @@ export const ENTIDADES: EntidadeDetalhe[] = [
     fontes: [fonteDe('cap-8')],
     sugestoes: [
       {
+        id: 'sgr-6',
         entidade_id: 'pes-5',
         rotulo: 'RICARDO FICTICIO LIMA',
         identificador: '***666666**',
@@ -976,6 +1065,64 @@ export const ENTIDADES: EntidadeDetalhe[] = [
     fontes: [fonteDe('cap-9'), fonteDe('cap-8')],
     sugestoes: [],
   },
+  // H50: a mesma pessoa (sintética) em duas eleições. São dois registros de candidato, um por
+  // eleição, ligados em `CANDIDATURAS_LIGADAS_DEMO`; do CPF só ficam os seis dígitos visíveis.
+  {
+    id: 'cand-2',
+    tipo: 'candidato',
+    rotulo: 'MARIA EXEMPLO SOUZA',
+    identificador: '2020:800002',
+    atributos: {
+      ano: 2020,
+      sq_candidato: '800002',
+      cargo: 'VEREADOR',
+      unidade_eleitoral: 'EXEMPLOPOLIS',
+      uf: 'GO',
+      situacao_turno: 'ELEITO POR QP',
+      nome_normalizado: 'MARIA EXEMPLO SOUZA',
+      cpf_mascarado: '***234567**',
+      bens_total: 180000,
+    },
+    fontes: [fonteDe('cap-15'), fonteDe('cap-16')],
+    sugestoes: [],
+  },
+  {
+    id: 'cand-3',
+    tipo: 'candidato',
+    rotulo: 'MARIA EXEMPLO SOUZA',
+    identificador: '2024:900002',
+    atributos: {
+      ano: 2024,
+      sq_candidato: '900002',
+      cargo: 'VEREADOR',
+      unidade_eleitoral: 'EXEMPLOPOLIS',
+      uf: 'GO',
+      situacao_turno: 'ELEITO POR QP',
+      nome_normalizado: 'MARIA EXEMPLO SOUZA',
+      cpf_mascarado: '***234567**',
+      bens_total: 455000,
+    },
+    fontes: [fonteDe('cap-9'), fonteDe('cap-17'), fonteDe('cap-18')],
+    sugestoes: [
+      {
+        id: 'sgr-8',
+        entidade_id: 'pes-2',
+        rotulo: 'MARIA EXEMPLO SOUZA',
+        identificador: '***234567**',
+        tipo: 'pessoa',
+        motivo:
+          "Possível coincidência entre candidato e sócio ou fornecedor pessoa física: mesmo nome normalizado 'MARIA EXEMPLO SOUZA' e mesmos seis dígitos " +
+          'visíveis do CPF (***234567**). Seis dígitos e o nome não identificam uma pessoa: é uma sugestão para o investigador confirmar ou descartar, ' +
+          'e os registros não foram fundidos.',
+        confianca: 0.9,
+        criado_em: '2026-11-16T09:15:01Z',
+        situacao: 'pendente',
+        decidido_por: null,
+        decidido_em: null,
+        justificativa_decisao: null,
+      },
+    ],
+  },
   {
     id: 'edi-1',
     tipo: 'edital',
@@ -1031,7 +1178,59 @@ export const ARESTAS: ArestaGrafo[] = [
   { origem: 'emp-7', destino: 'cand-1', tipo: 'doou_para', atributos: { valor: 15000, data: '2024-09-10' }, captura_id: 'cap-8' },
   { origem: 'pes-7', destino: 'cand-1', tipo: 'doou_para', atributos: { valor: 2000, data: '2024-09-12' }, captura_id: 'cap-8' },
   { origem: 'org-3', destino: 'edi-1', tipo: 'edital_de', atributos: { numero_controle_pncp_compra: '90100001000100-1-000001/2026' }, captura_id: 'cap-10' },
+  // H52: despesa contratada de campanha (candidato → empresa fornecedora, pelo CNPJ do fornecedor).
+  {
+    origem: 'cand-3',
+    destino: 'emp-3',
+    tipo: 'despesa_de_campanha',
+    atributos: {
+      valor: 48000,
+      data: '2024-09-05',
+      ano: '2024',
+      descricao: 'Serviços prestados por terceiros (sintético)',
+      cnae_fornecedor: '7020400',
+      cnae_fornecedor_descricao: 'Atividades de consultoria em gestão empresarial, exceto consultoria técnica específica',
+      cnpj_fornecedor: '34567890000111',
+    },
+    captura_id: 'cap-18',
+  },
 ];
+
+/**
+ * Candidaturas da mesma pessoa em eleições diferentes (H50). No back-end a ligação é pelo título
+ * eleitoral, comparado só por um resumo com chave que nunca sai do servidor; o simulado guarda
+ * apenas o resultado da ligação (os ids), sem título nem resumo. As entidades não são fundidas.
+ */
+export const CANDIDATURAS_LIGADAS_DEMO: Id[][] = [['cand-2', 'cand-3']];
+
+const bem = (ordem: number, tipo: string, descricao: string, valor: number, atualizado_em: string): BemDeclarado => ({ ordem: String(ordem), tipo, descricao, valor, atualizado_em });
+const VEICULO = 'Veículo automotor terrestre: caminhão, automóvel, moto, etc.';
+
+/**
+ * Bens declarados ao TSE por candidatura (H50), com a captura do arquivo de bens. A cand-1 não
+ * tem arquivo de bens coletado: na linha do tempo o total dela é `null`, não zero.
+ */
+export const BENS_DECLARADOS_DEMO: Record<string, { captura_id: Id; bens: BemDeclarado[] }> = {
+  'cand-2': {
+    captura_id: 'cap-16',
+    bens: [bem(1, 'Casa', 'Casa residencial em EXEMPLOPOLIS (sintético)', 150000, '2020-09-20'), bem(2, VEICULO, 'Automóvel popular (sintético)', 30000, '2020-09-20')],
+  },
+  'cand-3': {
+    captura_id: 'cap-17',
+    bens: [
+      bem(1, 'Casa', 'Casa residencial em EXEMPLOPOLIS (sintético)', 150000, '2024-08-10'),
+      bem(2, VEICULO, 'Automóvel utilitário (sintético)', 60000, '2024-08-10'),
+      bem(3, 'Terreno', 'Terreno urbano em EXEMPLOPOLIS (sintético)', 200000, '2024-08-10'),
+      bem(4, 'Depósito bancário em conta corrente no País', 'Conta corrente (sintético)', 45000, '2024-08-10'),
+    ],
+  },
+};
+
+/** Textos da linha do tempo patrimonial, iguais aos do back-end (`rotas_casos.py`). */
+export const NOTA_PATRIMONIO_DEMO =
+  'Declarado ao TSE no registro da candidatura; valor informado pelo candidato (não é avaliação de mercado). Só há dado de quem foi candidato.';
+export const SEM_RENDA_PUBLICA_DEMO =
+  'O sistema ainda não coleta remuneração pública (a fonte de renda não foi definida): a linha do tempo mostra só os bens declarados, e o alerta de evolução patrimonial (L11) não é gerado.';
 
 /**
  * Severidade e política de erro por tipologia (RF14, H13). Cópia resumida, só
@@ -1160,6 +1359,15 @@ export const POLITICAS_DEMO: Record<Tipologia, { nome: string; severidade: strin
     politica_erro:
       'Prefere evitar falso negativo: é a composição de T1 com T7 na mesma contratada e herda os homônimos da T7 (possível coincidência, nunca identificação). Não soma na combinação, porque T1 e T7 já contam.',
   },
+  // L9 (H46) e L13 (H52): o back-end ainda está implementando as duas; nome do contrato, severidade
+  // e política ilustrativas (o real vem de `GET /tipologias`). O simulado não gera alerta delas.
+  L9: {
+    nome: 'Eleito possivelmente sócio de empresa contratada pelo próprio ente',
+    severidade: 'alta',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: exige os seis dígitos visíveis do CPF e o nome iguais entre o candidato eleito e o sócio, e contrato com o ente do mandato. É possível coincidência, nunca identificação: homônimo com os mesmos seis dígitos é possível, e a sugestão de ligação continua dependendo da decisão do investigador.',
+  },
   L10: {
     nome: 'Vínculo com empresa sancionada ou com pessoa expulsa da administração',
     severidade: 'media',
@@ -1167,12 +1375,26 @@ export const POLITICAS_DEMO: Record<Tipologia, { nome: string; severidade: strin
     politica_erro:
       'Prefere evitar falso negativo: aponta sócio-administrador provável ou endereço em comum com empresa sancionada, e sócio que possivelmente coincide com pessoa do CEAF (pelo nome). Endereço compartilhado legítimo, sócio que saiu antes da sanção e homônimos geram falso positivo.',
   },
+  L13: {
+    nome: 'Despesa de campanha com fornecedor de perfil incompatível',
+    severidade: 'media',
+    prefere_evitar: 'falso_negativo',
+    politica_erro:
+      'Prefere evitar falso negativo: aponta a despesa de campanha contratada com empresa de atividade sem relação com campanha, recém-aberta ou com sinais de fachada. O CNAE informado na prestação de contas pode estar desatualizado, e fornecedor novo ou de outro ramo pode ser legítimo.',
+  },
+  L2: {
+    nome: 'Telefone ou e-mail compartilhado por empresas sem sócio em comum',
+    severidade: 'baixa',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: é sinal fraco, que não gera alerta próprio e só pesa no alerta de combinação. Só conta o contato igual em empresas de grupos sem sócio em comum. O falso positivo é muito alto: o contador costuma registrar o próprio telefone e e-mail nas empresas que atende. O contato é mostrado mascarado.',
+  },
   L14: {
     nome: 'Sócio em faixa etária atípica em empresa contratada',
     severidade: 'baixa',
     prefere_evitar: 'falso_positivo',
     politica_erro:
-      'Prefere evitar falso positivo: só dispara quando todos os sócios-administradores estão nas faixas atípicas e o valor contratado passa do mínimo. É sinal fraco: herança, sucessão e empresa familiar legítima são comuns.',
+      'Prefere evitar falso positivo: só conta quando todos os sócios-administradores estão nas faixas atípicas e o valor contratado passa do mínimo. É sinal fraco: herança, sucessão e empresa familiar legítima são comuns.',
   },
   L15: {
     nome: 'Número excessivo de atividades econômicas',
@@ -1197,8 +1419,8 @@ export const POLITICAS_DEMO: Record<Tipologia, { nome: string; severidade: strin
   },
 };
 
-/** Sinais fracos: sozinhos não indicam nada; só pesam no alerta de combinação. */
-export const SINAIS_FRACOS_DEMO: ReadonlySet<Tipologia> = new Set<Tipologia>(['L14', 'L15']);
+/** Sinais fracos (H49): sozinhos não indicam nada; não geram alerta e só pesam na combinação. */
+export const SINAIS_FRACOS_DEMO: ReadonlySet<Tipologia> = new Set<Tipologia>(SINAIS_FRACOS);
 
 /** Peso de cada tipologia na combinação (`comb_pesos`). L8 é composição de T1 e T7, já contadas. */
 export const PESOS_COMBINACAO_DEMO: Record<Tipologia, number> = Object.fromEntries(
@@ -1229,8 +1451,8 @@ function politicaDe(tipologia: Tipologia) {
  * Na ordem em que o back-end devolve: severidade (alta, média, baixa), depois o código da
  * tipologia como texto (por isso T10 vem antes de T2, e as L antes das T) e o título.
  *
- * Tipologias de lavagem: a ALFA (emp-1) tem um alerta L normal (L6) e um sinal fraco (L14),
- * além de T1, T2 e T3. O alerta de combinação não fica nesta lista: o simulado o calcula a
+ * Tipologias de lavagem: a ALFA (emp-1) tem um alerta L normal (L6), além de T1, T2 e T3. O
+ * sinal fraco dela (L14) não é alerta e fica em `SINAIS_DEMO`. O alerta de combinação não fica nesta lista: o simulado o calcula a
  * cada execução, a partir dos alertas da mesma entidade (`ClienteMock.executarAlertas`).
  */
 export const ALERTAS: Alerta[] = [
@@ -1510,21 +1732,6 @@ export const ALERTAS: Alerta[] = [
     },
   },
   {
-    id: 'alr-13',
-    tipologia: 'L14',
-    titulo: 'Sócio-administrador de ALFA SOLUÇÕES EM TI LTDA em faixa etária atípica',
-    motivo:
-      'O único sócio-administrador de ALFA SOLUÇÕES EM TI LTDA está na faixa etária 9 (maiores de 80 anos) da tabela ' +
-      'Sócios do CNPJ, e a empresa tem R$ 1.200.000,00 em contratos, acima do mínimo de R$ 100.000,00. Sinal fraco: ' +
-      'sozinho não indica nada (herança, sucessão e empresa familiar são comuns); só pesa no alerta de combinação. ' +
-      'A idade é dado pessoal: só a faixa é mostrada.',
-    severidade: POLITICAS_DEMO.L14.severidade,
-    ...politicaDe('L14'),
-    entidades: ['emp-1', 'pes-1', 'con-1'],
-    evidencias: [ev('Faixa etária do sócio-administrador (tabela Sócios do CNPJ)', 'cap-2'), ev('Valor global do contrato (PNCP)', 'cap-4')],
-    parametros: { faixa_etaria: '9', faixa_etaria_descricao: 'maiores de 80 anos', socios_administradores: 1, valor_contratado: 1200000, l14_valor_minimo: 100000 },
-  },
-  {
     id: 'alr-11',
     tipologia: 'T10',
     titulo: 'Exigência de certidão negativa de quitação no edital edital_restritivo.txt',
@@ -1593,6 +1800,29 @@ export const ALERTAS: Alerta[] = [
   },
 ];
 
+/**
+ * Sinais fracos do caso de demonstração (H49). Têm a forma de um alerta (motivo, evidências e
+ * parâmetros), mas NÃO são alertas: nenhuma execução os devolve. O simulado os avalia junto com a
+ * combinação e os põe dentro dela, como componentes sem alerta próprio.
+ */
+export const SINAIS_DEMO: Alerta[] = [
+  {
+    id: 'alr-13',
+    tipologia: 'L14',
+    titulo: 'Sócio-administrador de ALFA SOLUÇÕES EM TI LTDA em faixa etária atípica',
+    motivo:
+      'O único sócio-administrador de ALFA SOLUÇÕES EM TI LTDA está na faixa etária 9 (maiores de 80 anos) da tabela ' +
+      'Sócios do CNPJ, e a empresa tem R$ 1.200.000,00 em contratos, acima do mínimo de R$ 100.000,00. Sinal fraco: ' +
+      'sozinho não indica nada (herança, sucessão e empresa familiar são comuns); só pesa no alerta de combinação. ' +
+      'A idade é dado pessoal: só a faixa é mostrada.',
+    severidade: POLITICAS_DEMO.L14.severidade,
+    ...politicaDe('L14'),
+    entidades: ['emp-1', 'pes-1', 'con-1'],
+    evidencias: [ev('Faixa etária do sócio-administrador (tabela Sócios do CNPJ)', 'cap-2'), ev('Valor global do contrato (PNCP)', 'cap-4')],
+    parametros: { faixa_etaria: '9', faixa_etaria_descricao: 'maiores de 80 anos', socios_administradores: 1, valor_contratado: 1200000, l14_valor_minimo: 100000 },
+  },
+];
+
 const FONTE_LC_123 = 'Lei Complementar nº 123/2006';
 const FONTE_LC_MEI_2027 = 'Lei Complementar nº 238/2026 (https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp238.htm)';
 
@@ -1639,6 +1869,7 @@ export const PARAMETROS_TIPOLOGIAS_DEMO = {
     },
     primeiro_ano: 2012,
   },
+  l2_minimo_empresas: 3,
   l7_dias_apos_abertura: 30,
   l7_meses_antes_contrato: 12,
   l14_valor_minimo: 100000,
@@ -1662,6 +1893,7 @@ const POR_EXECUCAO = new Set([
   'l1_minimo_estabelecimentos',
   'l1_janela_abertura_dias',
   'l1_minimo_abertas_na_janela',
+  'l2_minimo_empresas',
   'l3_minimo_empresas',
   'l3_minimo_abertas_na_janela',
   'l3_janela_meses',
@@ -1691,6 +1923,7 @@ const DESCRICAO_PARAMETROS: Record<keyof typeof PARAMETROS_TIPOLOGIAS_DEMO, stri
   l1_minimo_estabelecimentos: 'Número mínimo de estabelecimentos ativos no mesmo endereço (com o complemento).',
   l1_janela_abertura_dias: 'Janela, em dias, para contar as empresas abertas quase ao mesmo tempo no endereço.',
   l1_minimo_abertas_na_janela: 'Número mínimo de empresas abertas dentro da janela para aumentar a severidade.',
+  l2_minimo_empresas: 'Número mínimo de empresas, em grupos sem sócio em comum, com o mesmo telefone ou correio eletrônico.',
   l3_minimo_empresas: 'Número mínimo de empresas em que a mesma pessoa provável tem qualificação de administração.',
   l3_minimo_abertas_na_janela: 'Quantas dessas empresas precisam ter sido abertas dentro da janela.',
   l3_janela_meses: 'Janela, em meses, para a abertura das empresas do mesmo administrador.',
@@ -1800,6 +2033,14 @@ const DESCRICOES_TIPOLOGIAS: Record<Tipologia, [string, string, string, string[]
     ['cnpj_arquivo', 'pncp', 'portal_transparencia (servidores)'],
     [],
   ],
+  // L9 e L13: sem parâmetros no simulado (os nomes dos limiares ainda não estão fechados no back-end).
+  L9: [
+    'H46',
+    'Candidato eleito que possivelmente é sócio (seis dígitos visíveis do CPF e nome) de empresa contratada, durante o mandato, por órgão do próprio ente. Possível coincidência, nunca identificação.',
+    'FATF (2011), § 44 (self-dealing); Velasco et al. (2021), seção 3.3. Ligação candidato–sócio: decisão do autor (23/11/2026).',
+    ['cnpj_arquivo', 'pncp', 'tse_arquivo'],
+    [],
+  ],
   L10: [
     '',
     'Contratada sem sanção própria que compartilha sócio-administrador provável ou endereço com empresa sancionada na data do contrato, ou sócio que possivelmente coincide (pelo nome) com pessoa expulsa da administração federal (CEAF).',
@@ -1807,16 +2048,30 @@ const DESCRICOES_TIPOLOGIAS: Record<Tipologia, [string, string, string, string[]
     ['cnpj_arquivo', 'pncp', 'portal_transparencia (ceis, cnep, cepim, ceaf)'],
     ['qualificacoes_administracao'],
   ],
+  L13: [
+    'H52',
+    'Despesa de campanha contratada com empresa de atividade sem relação com campanha, recém-aberta ou com sinais de fachada. Liga o candidato à empresa pelo CNPJ do fornecedor.',
+    'Carta Circular BCB nº 4.001/2020, XIV, d; despesas contratadas da prestação de contas eleitorais (TSE).',
+    ['cnpj_arquivo', 'tse_arquivo'],
+    [],
+  ],
+  L2: [
+    'H49',
+    'Sinal fraco, não gera alerta próprio: só pesa na combinação. O mesmo telefone (DDD e número) ou o mesmo correio eletrônico no cadastro de K ou mais empresas do caso que formam K ou mais grupos sem sócio em comum. O contato é comparado normalizado e mostrado mascarado; o valor completo fica só na captura.',
+    'Carta Circular BCB nº 4.001/2020, III, k (mesmo endereço de e-mail por diferentes pessoas jurídicas); FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E, item 4. Estender ao telefone do cadastro, o agrupamento por sócio e o limiar: decisão do autor.',
+    ['cnpj_arquivo'],
+    ['l2_minimo_empresas'],
+  ],
   L14: [
     '',
-    'Contratada cujos sócios-administradores estão todos em faixa etária atípica, com valor contratado acima de V. Só a faixa etária é usada e mostrada.',
+    'Sinal fraco, não gera alerta próprio: só pesa na combinação. Contratada cujos sócios-administradores estão todos em faixa etária atípica, com valor contratado acima de V. Só a faixa etária é usada e mostrada.',
     'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E (interposta pessoa informal). Sinal fraco. Limiar: decisão do autor.',
     ['cnpj_arquivo', 'pncp'],
     ['l14_valor_minimo', 'l14_faixas_atipicas'],
   ],
   L15: [
     '',
-    'Estabelecimento com N ou mais CNAEs, ou contratos da mesma empresa em M ou mais categorias de objeto.',
+    'Sinal fraco, não gera alerta próprio: só pesa na combinação. Estabelecimento com N ou mais CNAEs, ou contratos da mesma empresa em M ou mais categorias de objeto.',
     'Velasco et al. (2021): grande número de classificações de atividade. Sinal fraco. Limiares: decisão do autor.',
     ['cnpj_arquivo', 'pncp'],
     ['l15_minimo_cnaes', 'l15_minimo_categorias'],

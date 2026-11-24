@@ -288,7 +288,7 @@ describe('RF04: ClienteHttp com as tipologias de lavagem e a combinação', () =
       comb_minimo_tipologias: 3,
       comb_peso_minimo: 2.5,
     };
-    const tipologias = ['L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16', 'COMB'] as const;
+    const tipologias = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16', 'COMB'] as const;
     await cliente.executarAlertas('c1', { tipologias: [...tipologias], parametros });
     const init = fetchImpl.mock.calls[0][1] as RequestInit;
     expect(url(fetchImpl)).toBe('http://api.teste:8000/casos/c1/alertas/executar');
@@ -301,7 +301,7 @@ describe('RF04: ClienteHttp com as tipologias de lavagem e a combinação', () =
     const alerta = {
       id: 'a-9', tipologia: 'COMB', titulo: 'Combinação', motivo: 'm', severidade: 'alta', entidades: ['e-1'], evidencias: [],
       grupo: 'combinacao', sinal_fraco: false, peso: 0,
-      parametros: { soma_pesos: 2.5, tipologias_distintas: 3, componentes: [{ alerta_id: 'a-1', tipologia: 'L14', titulo: 't', peso: 0.5, sinal_fraco: true, conta: true, observacao: '' }] },
+      parametros: { soma_pesos: 2.5, tipologias_distintas: 3, componentes: [{ alerta_id: null, tipologia: 'L14', titulo: 't', situacao: 'sinal', peso: 0.5, sinal_fraco: true, conta: true, observacao: '', motivo: 'Sinal fraco. Motivo.' }] },
     };
     const alertas = await criar({ corpo: [alerta] }).cliente.listarAlertas('c1');
     expect(alertas[0]).toEqual(alerta);

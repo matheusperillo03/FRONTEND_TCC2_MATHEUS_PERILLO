@@ -2,11 +2,11 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Alerta, ComponenteCombinacao } from '../api';
-import { ALERTAS } from '../api/dadosSinteticos';
+import { ALERTAS, SINAIS_DEMO } from '../api/dadosSinteticos';
 import { SessaoProvider } from '../sessao/SessaoContext';
 import { clienteFalso } from '../test/clienteFalso';
 import { cpfSinteticoValido, mascarado } from '../test/cpfSintetico';
-import { CartaoAlerta, idCartaoAlerta } from './CartaoAlerta';
+import { CartaoAlerta, idCartaoAlerta, nomeTipologia } from './CartaoAlerta';
 
 const ALERTA_T1 = ALERTAS.find((a) => a.tipologia === 'T1')!;
 
@@ -229,7 +229,8 @@ describe('RF04: cartão de alerta das tipologias de lavagem (L)', () => {
     );
   }
   const L6 = ALERTAS.find((a) => a.tipologia === 'L6')!;
-  const L14 = ALERTAS.find((a) => a.tipologia === 'L14')!;
+  // H49: nenhuma execução grava mais alerta de sinal fraco; este é o alerta de uma versão anterior, mantido inativo pela decisão.
+  const L14 = { ...SINAIS_DEMO.find((a) => a.tipologia === 'L14')!, id: 'alr-antigo-l14', ativo: false };
 
   it('RNF05: o alerta L traz motivo, política de erro, parâmetros e evidências com SHA-256, como os T', () => {
     renderizar(L6);
@@ -306,10 +307,10 @@ describe('RF04: cartão de alerta das tipologias de lavagem (L)', () => {
     expect(container.textContent?.match(/pista, não uma conclusão/g)).toHaveLength(1);
   });
 
-  it('RF14: o sinal fraco tem selo, peso 0,5 e o texto de que sozinho não indica nada', () => {
+  it('RF14: o alerta antigo de sinal fraco (de versão anterior) tem selo, peso 0,5 e o texto de que sozinho não indica nada', () => {
     renderizar(L14);
     expect(screen.getByTestId('selo-sinal-fraco')).toHaveTextContent('sinal fraco');
-    expect(screen.getByTestId('aviso-pista')).toHaveTextContent('Sinal fraco: sozinho não indica nada; só pesa no alerta de combinação.');
+    expect(screen.getByTestId('aviso-pista')).toHaveTextContent('Sinal fraco: sozinho não indica nada; não gera alerta próprio e só pesa no alerta de combinação.');
     expect(screen.getByTestId('peso-alerta')).toHaveTextContent('peso na combinação: 0,5');
   });
 
@@ -324,6 +325,8 @@ describe('RF04: cartão de alerta das tipologias de lavagem (L)', () => {
 });
 
 describe('RF14: cartão do alerta de combinação (COMB)', () => {
+  // CPF gerado a cada execução: nenhum número com verificadores válidos fica no repositório.
+  const CPF_SINAL = cpfSinteticoValido();
   const componente = (parcial: Partial<ComponenteCombinacao>): ComponenteCombinacao => ({
     alerta_id: 'alr-1',
     tipologia: 'T1',
@@ -362,7 +365,8 @@ describe('RF14: cartão do alerta de combinação (COMB)', () => {
       componentes: [
         componente({}),
         componente({ alerta_id: 'alr-7', tipologia: 'T7', tipologia_nome: 'Possível coincidência entre sócio e servidor', titulo: 'Possível coincidência: sócio e servidor', severidade: 'alta', situacao: 'confirmado' }),
-        componente({ alerta_id: 'alr-13', tipologia: 'L14', tipologia_nome: 'Sócio em faixa etária atípica em empresa contratada', titulo: 'Sócio em faixa etária atípica', severidade: 'baixa', peso: 0.5, sinal_fraco: true }),
+        // H49: o sinal fraco não tem alerta próprio (`alerta_id` nulo, situação "sinal") e traz o motivo.
+        componente({ alerta_id: null, tipologia: 'L14', tipologia_nome: 'Sócio em faixa etária atípica em empresa contratada', titulo: 'Sócio em faixa etária atípica', severidade: 'baixa', situacao: 'sinal', peso: 0.5, sinal_fraco: true, motivo: `Sinal fraco. Motivo sintético do sinal, com CPF ${CPF_SINAL}.` }),
         componente({
           alerta_id: 'alr-20',
           tipologia: 'L8',
@@ -398,6 +402,13 @@ describe('RF14: cartão do alerta de combinação (COMB)', () => {
     expect(linhas[2]).toHaveTextContent('0,5');
     expect(linhas[2]).toHaveTextContent('sinal fraco');
     expect(within(linhas[2]).getByText('conta')).toBeInTheDocument();
+    // H49: sem alerta próprio, a linha traz o motivo (com CPF descaracterizado) e não tem botão.
+    expect(linhas[2]).toHaveTextContent('sem alerta próprio: só pesa nesta combinação');
+    expect(within(linhas[2]).getByTestId('motivo-sinal-fraco')).toHaveTextContent(`Sinal fraco. Motivo sintético do sinal, com CPF ${mascarado(CPF_SINAL)}.`);
+    expect(linhas[2]).not.toHaveTextContent(CPF_SINAL);
+    expect(within(linhas[2]).queryByRole('button')).not.toBeInTheDocument();
+    expect(linhas[2]).not.toHaveTextContent('situação:');
+    expect(within(linhas[0]).queryByTestId('motivo-sinal-fraco')).not.toBeInTheDocument();
     expect(within(linhas[3]).getByText('não conta')).toBeInTheDocument();
     expect(linhas[3]).toHaveTextContent('Composição de T1 e T7, já contadas separadamente.');
     expect(linhas[3]).toHaveTextContent('Empresa recém-aberta com sócio que possivelmente é agente público');
@@ -435,8 +446,10 @@ describe('RF14: cartão do alerta de combinação (COMB)', () => {
     const usuario = userEvent.setup();
     const aoIrParaAlerta = vi.fn();
     renderizar(COMB, aoIrParaAlerta);
-    await usuario.click(screen.getByRole('button', { name: 'Sócio em faixa etária atípica' }));
-    expect(aoIrParaAlerta).toHaveBeenCalledWith('alr-13');
+    await usuario.click(screen.getByRole('button', { name: 'Possível coincidência: sócio e servidor' }));
+    expect(aoIrParaAlerta).toHaveBeenCalledWith('alr-7');
+    // H49: o sinal fraco não tem alerta próprio, então não há para onde ir.
+    expect(screen.queryByRole('button', { name: 'Sócio em faixa etária atípica' })).not.toBeInTheDocument();
   });
 
   it('sem função de navegação, rola até a âncora do cartão do componente e põe o foco nele', async () => {
@@ -464,5 +477,13 @@ describe('RF14: cartão do alerta de combinação (COMB)', () => {
     const { container } = renderizar(comCpf);
     expect(container.textContent).not.toContain(cpf);
     expect(screen.getByRole('button', { name: `Sócio de CPF ${mascarado(cpf)} em 4 empresas` })).toBeInTheDocument();
+  });
+});
+
+describe('nomes das tipologias da ligação de pessoas', () => {
+  it('H46 e H52: L9 e L13 têm nome local quando o back-end não manda o nome', () => {
+    expect(nomeTipologia('L9')).toBe('L9 — Eleito possivelmente sócio de empresa contratada pelo próprio ente');
+    expect(nomeTipologia('L13')).toBe('L13 — Despesa de campanha com fornecedor de perfil incompatível');
+    expect(nomeTipologia('L13', 'Nome do servidor')).toBe('L13 — Nome do servidor');
   });
 });

@@ -77,8 +77,11 @@ export interface CasoDetalhe extends Caso {
   avisos_tipologias?: string[];
 }
 
-/** Fontes de coleta. As quatro últimas vieram com o horizonte 2 (H19). */
-export type FonteColeta = 'cnpj_arquivo' | 'pncp' | 'portal_transparencia' | 'pncp_termos' | 'tse_arquivo' | 'edital_arquivo';
+/**
+ * Fontes de coleta. `portal_transparencia`, `pncp_termos`, `tse_arquivo` e `edital_arquivo` vieram
+ * com o horizonte 2 (H19); `tse_bens` (bens declarados ao TSE), com a H50.
+ */
+export type FonteColeta = 'cnpj_arquivo' | 'pncp' | 'portal_transparencia' | 'pncp_termos' | 'tse_arquivo' | 'tse_bens' | 'edital_arquivo';
 
 export interface ParametrosCnpjArquivo {
   diretorio: string;
@@ -147,6 +150,18 @@ export interface ParametrosTseArquivo {
   do_caso?: boolean;
 }
 
+/**
+ * Bens declarados ao TSE (H50, arquivos `bem_candidato_*.csv`): como `ParametrosTseArquivo`,
+ * sem `municipio` (o arquivo de bens não traz o nome da unidade eleitoral).
+ */
+export interface ParametrosTseBens {
+  diretorio: string;
+  uf?: string;
+  ano?: string;
+  candidatos?: string[];
+  do_caso?: boolean;
+}
+
 export interface ParametrosEditalArquivo {
   diretorio: string;
   numero_controle_pncp_compra?: string;
@@ -159,6 +174,7 @@ export type ColetaRequisicao =
   | { fonte: 'portal_transparencia'; parametros: ParametrosPortalTransparencia }
   | { fonte: 'pncp_termos'; parametros: ParametrosPncpTermos }
   | { fonte: 'tse_arquivo'; parametros: ParametrosTseArquivo }
+  | { fonte: 'tse_bens'; parametros: ParametrosTseBens }
   | { fonte: 'edital_arquivo'; parametros: ParametrosEditalArquivo };
 
 /**
@@ -289,22 +305,114 @@ export interface FonteEntidade {
   coletado_em?: string;
 }
 
+export type SituacaoSugestao = 'pendente' | 'confirmado' | 'descartado';
+
 /**
- * Sugestão de resolução de homônimos (RF02). Nunca representa uma fusão:
- * é apenas uma indicação para o analista.
- * SUPOSIÇÃO: campos `entidade_id`, `rotulo`, `identificador`, `motivo`, `confianca`.
+ * Sugestão de resolução (RF02): homônimos e, desde a decisão do autor de 23/11/2026, candidato
+ * que possivelmente é sócio ou servidor (seis dígitos visíveis do CPF e nome). Nunca representa
+ * uma fusão: é uma pista que o investigador confirma ou descarta, e os registros continuam separados.
+ *
+ * Formato da tela. O back-end devolve `id`, `candidata_id`, `candidata_rotulo`,
+ * `candidata_identificador`, `candidata_tipo` e `score`; o `ClienteHttp` adapta
+ * (`adaptarSugestao`) para `entidade_id`, `rotulo`, `identificador`, `tipo` e `confianca`.
  */
 export interface SugestaoResolucao {
+  /** Identificador da sugestão (o que a decisão usa). Ausente só em respostas antigas. */
+  id?: Id;
+  /** A outra entidade do par (a "candidata" da sugestão). */
   entidade_id: Id;
   rotulo: string;
   identificador?: string;
+  /** Tipo da outra entidade (`pessoa`, `candidato`...). */
+  tipo?: string | null;
   motivo: string;
   confianca?: number;
+  criado_em?: string;
+  /** Decisão do investigador sobre o par (vale nos dois sentidos). Ausente = pendente. */
+  situacao?: SituacaoSugestao;
+  decidido_por?: string | null;
+  decidido_em?: string | null;
+  justificativa_decisao?: string | null;
+}
+
+/** Corpo de `POST /casos/{id}/sugestoes/{sugestao_id}/decisao`. A justificativa (1 a 500 caracteres) é obrigatória. */
+export interface NovaDecisaoSugestao {
+  decisao: 'confirmado' | 'descartado';
+  justificativa: string;
+}
+
+/**
+ * Candidatura da mesma pessoa em outra eleição (H50). A ligação é pelo título eleitoral,
+ * comparado no servidor só por um resumo com chave; nem o título nem o resumo chegam ao front.
+ */
+export interface OutraCandidatura {
+  entidade_id: Id;
+  rotulo: string;
+  ano: string;
+  cargo: string;
+  uf: string;
+  situacao_turno: string;
 }
 
 export interface EntidadeDetalhe extends EntidadeResumo {
   fontes: FonteEntidade[];
   sugestoes: SugestaoResolucao[];
+  /** Só para candidato; vazio se não houver outra candidatura. Ausente em respostas antigas. */
+  outras_candidaturas?: OutraCandidatura[];
+}
+
+/** Bem declarado ao TSE numa eleição (H50). O valor é o informado pelo candidato. */
+export interface BemDeclarado {
+  ordem: string;
+  tipo: string;
+  descricao: string;
+  valor: number | null;
+  atualizado_em: string;
+}
+
+export interface BensPorTipo {
+  tipo: string;
+  total: number;
+  quantidade: number;
+}
+
+/** Bens declarados numa eleição, com a captura de origem (RNF05). */
+export interface PontoPatrimonial {
+  entidade_id: Id;
+  rotulo: string;
+  ano: string;
+  cargo: string;
+  uf: string;
+  /** `null`: nenhum arquivo de bens coletado para esta candidatura (não é "zero bens"). */
+  total: number | null;
+  quantidade: number;
+  por_tipo: BensPorTipo[];
+  bens: BemDeclarado[];
+  captura_id: Id | null;
+  sha256: string | null;
+  fonte: string | null;
+  url_ou_arquivo: string | null;
+}
+
+export interface VariacaoPatrimonial {
+  de_ano: string;
+  para_ano: string;
+  diferenca: number;
+  /** `null` quando o total anterior é zero. */
+  percentual: number | null;
+}
+
+/**
+ * Resposta de `GET /casos/{id}/entidades/{eid}/patrimonio` (RF05, H51; só candidato). Sem renda
+ * pública conhecida (`renda_publica.conhecida: false`) não há alerta: a linha é só informativa.
+ */
+export interface LinhaDoTempoPatrimonial {
+  entidade_id: Id;
+  ligacao: 'titulo_eleitoral' | 'candidatura_unica';
+  nota: string;
+  pontos: PontoPatrimonial[];
+  variacoes: VariacaoPatrimonial[];
+  renda_publica: { conhecida: boolean; motivo: string };
 }
 
 export interface NoGrafo {
@@ -326,7 +434,9 @@ export type TipoAresta =
   | 'edital_de'
   // Tipologias de lavagem (L16): empresa → convênio e órgão → convênio.
   | 'convenente_de'
-  | 'concedente_de';
+  | 'concedente_de'
+  // Despesa contratada de campanha (H52, L13): candidato → empresa fornecedora.
+  | 'despesa_de_campanha';
 
 export interface ArestaGrafo {
   origem: Id;
@@ -343,16 +453,25 @@ export interface Grafo {
 
 /** T: contratações (possível infração antecedente). */
 export type TipologiaContratacao = 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7' | 'T8' | 'T9' | 'T10';
-/** L: lavagem e ocultação. Não existem L2, L9, L11, L12 e L13. */
-export type TipologiaLavagem = 'L1' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8' | 'L10' | 'L14' | 'L15' | 'L16';
+/** L: lavagem e ocultação. Não existem L11 e L12; L2 é sinal fraco (H49); L9 (H46) e L13 (H52) vieram com a ligação de pessoas. */
+export type TipologiaLavagem = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8' | 'L9' | 'L10' | 'L13' | 'L14' | 'L15' | 'L16';
 /** COMB: combinação de alertas na mesma entidade. */
 export type Tipologia = TipologiaContratacao | TipologiaLavagem | 'COMB';
 
 export const TIPOLOGIAS_CONTRATACAO: readonly TipologiaContratacao[] = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10'];
-export const TIPOLOGIAS_LAVAGEM: readonly TipologiaLavagem[] = ['L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16'];
+export const TIPOLOGIAS_LAVAGEM: readonly TipologiaLavagem[] = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16'];
 
 /** Na ordem do catálogo e da execução do back-end: T1 a T10, as L e, por fim, a combinação. */
 export const TIPOLOGIAS: readonly Tipologia[] = [...TIPOLOGIAS_CONTRATACAO, ...TIPOLOGIAS_LAVAGEM, 'COMB'];
+
+/**
+ * Sinais fracos (H49): sozinhos não indicam nada. Não geram alerta próprio: o back-end os avalia
+ * junto com a combinação (COMB) e eles só aparecem dentro dela, como componentes sem alerta.
+ */
+export const SINAIS_FRACOS: readonly Tipologia[] = ['L2', 'L14', 'L15'];
+
+/** Tipologias que geram alerta: as que o investigador escolhe para executar e usa no filtro. */
+export const TIPOLOGIAS_COM_ALERTA: readonly Tipologia[] = TIPOLOGIAS.filter((t) => !SINAIS_FRACOS.includes(t));
 
 export type GrupoTipologia = 'contratacao' | 'lavagem' | 'combinacao';
 
@@ -392,6 +511,8 @@ export interface ParametrosTipologias {
   l1_janela_abertura_dias?: number;
   /** Inteiro ≥ 2. */
   l1_minimo_abertas_na_janela?: number;
+  /** Inteiro ≥ 2 (sinal fraco L2). */
+  l2_minimo_empresas?: number;
   /** Inteiro ≥ 2. */
   l3_minimo_empresas?: number;
   /** Inteiro ≥ 1. */
@@ -538,14 +659,17 @@ export interface Alerta {
   ativo?: boolean;
   /** Tipologias de lavagem e combinação: ausentes em respostas antigas. */
   grupo?: GrupoTipologia;
-  /** Verdadeiro: sinal fraco, que só pesa no alerta de combinação. */
+  /** Verdadeiro só em alerta gravado por versão anterior: hoje o sinal fraco não gera alerta (H49). */
   sinal_fraco?: boolean;
   peso?: number;
 }
 
-/** Um alerta que entra (ou não) num alerta de combinação (`parametros.componentes` do COMB). */
+/**
+ * Um alerta que entra (ou não) num alerta de combinação (`parametros.componentes` do COMB), ou um
+ * sinal fraco (H49), que não tem alerta próprio: `alerta_id` nulo, `situacao` "sinal" e o `motivo`.
+ */
 export interface ComponenteCombinacao {
-  alerta_id: Id;
+  alerta_id: Id | null;
   tipologia: string;
   tipologia_nome?: string;
   titulo: string;
@@ -556,6 +680,8 @@ export interface ComponenteCombinacao {
   /** Falso: o alerta aparece na lista, mas não soma (a `observacao` diz por quê). */
   conta: boolean;
   observacao?: string;
+  /** Só no sinal fraco: a explicação que, nos demais, está no cartão do próprio alerta. */
+  motivo?: string;
 }
 
 /** `parametros` de um alerta `COMB`. Não é escore de culpa: é pista para priorizar a análise (RF12). */
@@ -1194,6 +1320,10 @@ export interface ApiCliente {
   /** `tipo` ausente: todos os tipos (H09/RF11). */
   buscarEntidades(casoId: Id, q: string, tipo?: TipoEntidade): Promise<EntidadeResumo[]>;
   obterEntidade(casoId: Id, entidadeId: Id): Promise<EntidadeDetalhe>;
+  /** RF02 (H46): confirma ou descarta a sugestão. Vale para o par (os dois sentidos) e nunca funde as entidades. */
+  decidirSugestao(casoId: Id, sugestaoId: Id, corpo: NovaDecisaoSugestao): Promise<SugestaoResolucao>;
+  /** RF05 (H51): linha do tempo patrimonial do candidato (bens declarados ao TSE por eleição). */
+  obterPatrimonio(casoId: Id, entidadeId: Id): Promise<LinhaDoTempoPatrimonial>;
   obterGrafo(casoId: Id, centro: Id, profundidade: number): Promise<Grafo>;
   obterCaminho(casoId: Id, de: Id, para: Id): Promise<Grafo>;
   /** Roda as tipologias (todas, ou as de `corpo.tipologias`), com limiares opcionais por execução. */

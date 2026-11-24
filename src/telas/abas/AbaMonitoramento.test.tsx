@@ -206,7 +206,7 @@ describe('Caso — abas do horizonte 2', () => {
       'Coleta', 'Entidades', 'Grafo', 'Alertas', 'Sugestões da IA', 'Tipologias', 'Monitoramento', 'Equipe', 'Auditoria', 'Relatório',
     ]);
     await usuario.click(screen.getByRole('tab', { name: 'Tipologias' }));
-    expect(await screen.findAllByTestId('tipologia')).toHaveLength(22);
+    expect(await screen.findAllByTestId('tipologia')).toHaveLength(25);
 
     await usuario.click(screen.getByRole('tab', { name: 'Entidades' }));
     await usuario.type(screen.getByLabelText(/Buscar por nome, CNPJ ou CPF parcial/), 'TETA');

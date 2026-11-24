@@ -29,13 +29,16 @@ const NOMES_TIPOLOGIA: Record<string, string> = {
   T9: 'Doador de campanha contratado pelo ente do candidato eleito',
   T10: 'Cláusula potencialmente restritiva em edital',
   L1: 'Endereço de registro em massa',
+  L2: 'Telefone ou e-mail compartilhado por empresas sem sócio em comum',
   L3: 'Mesmo administrador ou representante em muitas empresas',
   L4: 'Cadeia societária em camadas',
   L5: 'Sócio estrangeiro (nível 1)',
   L6: 'Porte ou regime incompatível com o valor contratado',
   L7: 'Fundadores substituídos logo após a abertura',
   L8: 'Empresa recém-aberta com sócio que possivelmente é agente público',
+  L9: 'Eleito possivelmente sócio de empresa contratada pelo próprio ente',
   L10: 'Vínculo com empresa sancionada ou com pessoa expulsa da administração',
+  L13: 'Despesa de campanha com fornecedor de perfil incompatível',
   L14: 'Sócio em faixa etária atípica em empresa contratada',
   L15: 'Número excessivo de atividades econômicas',
   L16: 'Entidade sem fins lucrativos convenente com sinais de fachada',
@@ -43,7 +46,7 @@ const NOMES_TIPOLOGIA: Record<string, string> = {
 };
 
 /** Texto fixo dos sinais fracos (contrato da API): vale no cartão, na lista e no catálogo. */
-export const TEXTO_SINAL_FRACO = 'Sinal fraco: sozinho não indica nada; só pesa no alerta de combinação.';
+export const TEXTO_SINAL_FRACO = 'Sinal fraco: sozinho não indica nada; não gera alerta próprio e só pesa no alerta de combinação.';
 
 /** Aviso do alerta de combinação quando o back-end não manda `parametros.aviso`. */
 export const AVISO_COMBINACAO = 'Não é escore de culpa: é uma pista para priorizar a análise (RF12).';
@@ -421,6 +424,8 @@ function SecaoCombinacao({ alerta, aoIrParaAlerta }: { alerta: Alerta; aoIrParaA
           <tbody>
             {componentes.map((c, i) => {
               const conta = c.conta !== false;
+              // H49: o sinal fraco não tem alerta próprio; a explicação dele vem no componente.
+              const semAlerta = c.alerta_id === undefined || c.alerta_id === null;
               return (
                 <tr key={`${String(c.alerta_id)}-${i}`} data-testid="componente-combinacao" className={conta ? undefined : 'componente-nao-conta'}>
                   <td>
@@ -436,13 +441,24 @@ function SecaoCombinacao({ alerta, aoIrParaAlerta }: { alerta: Alerta; aoIrParaA
                   </td>
                   <td className="quebra">
                     {c.alerta_id !== undefined && c.alerta_id !== null ? (
-                      <button type="button" className="botao-link" onClick={() => ir(c.alerta_id)} title="Ir para o cartão deste alerta">
+                      <button type="button" className="botao-link" onClick={() => ir(c.alerta_id as Id)} title="Ir para o cartão deste alerta">
                         {mascararCpfs(c.titulo)}
                       </button>
                     ) : (
                       mascararCpfs(c.titulo)
                     )}
-                    {c.situacao && <div className="mudo">situação: {ROTULOS_SITUACAO_COMPONENTE[c.situacao] ?? c.situacao}</div>}
+                    {semAlerta ? (
+                      <>
+                        <div className="mudo">sem alerta próprio: só pesa nesta combinação</div>
+                        {c.motivo && (
+                          <p className="motivo-sinal-fraco" data-testid="motivo-sinal-fraco">
+                            {mascararCpfs(c.motivo)}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      c.situacao && <div className="mudo">situação: {ROTULOS_SITUACAO_COMPONENTE[c.situacao] ?? c.situacao}</div>
+                    )}
                   </td>
                   <td>{formatarPeso(c.peso)}</td>
                   <td>

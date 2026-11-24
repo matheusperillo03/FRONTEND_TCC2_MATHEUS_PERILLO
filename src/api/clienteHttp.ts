@@ -43,6 +43,7 @@ import type {
   Grafo,
   IaEstado,
   Id,
+  LinhaDoTempoPatrimonial,
   ImportacaoJudicial,
   Me,
   Membro,
@@ -50,6 +51,7 @@ import type {
   NovaAnotacao,
   NovaDecisao,
   NovaDecisaoJudicial,
+  NovaDecisaoSugestao,
   NovaImportacaoJudicial,
   NovaTarefa,
   NovoCaso,
@@ -64,6 +66,7 @@ import type {
   SituacaoMonitoramento,
   SituacaoTarefa,
   SugestaoIa,
+  SugestaoResolucao,
   Tarefa,
   TextoCaptura,
   TipoEntidade,
@@ -110,6 +113,36 @@ export function sanitizarCabecalho(valor: string): string {
   return Array.from(valor.trim(), (c) => (c.charCodeAt(0) > 0xff ? '?' : c))
     .join('')
     .replace(/[\r\n]+/g, ' ');
+}
+
+const texto = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+
+/**
+ * Sugestão de resolução: o back-end devolve `id`, `candidata_id`, `candidata_rotulo`,
+ * `candidata_identificador`, `candidata_tipo` e `score` (`SugestaoSaida`); a tela usa
+ * `entidade_id`, `rotulo`, `identificador`, `tipo` e `confianca`. Aceita também o formato da
+ * tela (resposta já adaptada). Sem rótulo (a outra entidade saiu do caso), mostra o id.
+ */
+export function adaptarSugestao(bruta: unknown): SugestaoResolucao {
+  const b = (bruta ?? {}) as Record<string, unknown>;
+  const doBack = 'candidata_id' in b;
+  const entidadeId = (doBack ? b.candidata_id : b.entidade_id) as Id;
+  const confianca = doBack ? b.score : b.confianca;
+  const situacao = b.situacao;
+  return {
+    id: (b.id as Id | undefined) ?? undefined,
+    entidade_id: entidadeId,
+    rotulo: texto(doBack ? b.candidata_rotulo : b.rotulo) ?? String(entidadeId),
+    identificador: texto(doBack ? b.candidata_identificador : b.identificador),
+    tipo: texto(doBack ? b.candidata_tipo : b.tipo) ?? null,
+    confianca: typeof confianca === 'number' ? confianca : undefined,
+    motivo: texto(b.motivo) ?? '',
+    criado_em: texto(b.criado_em),
+    situacao: situacao === 'confirmado' || situacao === 'descartado' ? situacao : 'pendente',
+    decidido_por: texto(b.decidido_por) ?? null,
+    decidido_em: texto(b.decidido_em) ?? null,
+    justificativa_decisao: texto(b.justificativa_decisao) ?? null,
+  };
 }
 
 export class ClienteHttp implements ApiCliente {
@@ -213,8 +246,17 @@ export class ClienteHttp implements ApiCliente {
     return this.requisitar(`/casos/${enc(casoId)}/entidades`, { query: { q, tipo }, exigeJustificativa: true });
   }
 
-  obterEntidade(casoId: Id, entidadeId: Id): Promise<EntidadeDetalhe> {
-    return this.requisitar(`/casos/${enc(casoId)}/entidades/${enc(entidadeId)}`, { exigeJustificativa: true });
+  async obterEntidade(casoId: Id, entidadeId: Id): Promise<EntidadeDetalhe> {
+    const e = await this.requisitar<EntidadeDetalhe>(`/casos/${enc(casoId)}/entidades/${enc(entidadeId)}`, { exigeJustificativa: true });
+    return { ...e, sugestoes: (e.sugestoes ?? []).map(adaptarSugestao), outras_candidaturas: e.outras_candidaturas ?? [] };
+  }
+
+  async decidirSugestao(casoId: Id, sugestaoId: Id, corpo: NovaDecisaoSugestao): Promise<SugestaoResolucao> {
+    return adaptarSugestao(await this.requisitar(`/casos/${enc(casoId)}/sugestoes/${enc(sugestaoId)}/decisao`, { metodo: 'POST', corpo, exigeJustificativa: true }));
+  }
+
+  obterPatrimonio(casoId: Id, entidadeId: Id): Promise<LinhaDoTempoPatrimonial> {
+    return this.requisitar(`/casos/${enc(casoId)}/entidades/${enc(entidadeId)}/patrimonio`, { exigeJustificativa: true });
   }
 
   obterGrafo(casoId: Id, centro: Id, profundidade: number): Promise<Grafo> {
