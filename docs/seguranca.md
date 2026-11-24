@@ -14,6 +14,8 @@ Correções feitas a partir da auditoria de segurança do MVP:
 - **`X-Forwarded-For` com `$remote_addr`:** o valor enviado pelo cliente não é repassado.
 - **`.dockerignore` exclui `.env.*`** (mantendo `.env.example`), para que nenhum arquivo de ambiente entre no contexto de *build*.
 - ***Healthcheck* com `wget` do busybox**, sem `apk add curl`.
+- **TLS, redirecionamento para https e HSTS:** ver "TLS", em [execucao.md](execucao.md).
+- **Token de desenvolvimento só em modo de desenvolvimento.** A tela de entrada só mostra "Entrar com token de desenvolvimento" quando `/health` responde `modo_dev: true`. Com `MODO_DEV=0`, com servidor antigo (sem o campo) ou sem resposta, o acesso não aparece; e o back-end responde `401` a esses tokens.
 
 Erros do back-end aparecem com o motivo e o que fazer: justificativa recusada (400/422, por exemplo com caracteres de controle), corpo grande demais (413) e erros de validação do FastAPI no formato "campo: mensagem". A barra de justificativa também recusa localmente texto com caracteres de controle, antes de guardá-lo na sessão; a regra que vale é a do back-end.
 

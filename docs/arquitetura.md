@@ -52,7 +52,8 @@ src/
     abas/               uma aba por arquivo
   test/                 setup do Vitest e cliente falso para componentes
 public/licencas/        licença MIT do @govbr-ds/core (vai para dist/)
-Dockerfile, nginx.conf, nginx-cabecalhos.conf, .dockerignore
+Dockerfile, nginx.conf, nginx-tls.conf, nginx-servidor.conf, nginx-cabecalhos.conf, .dockerignore
+scripts/nginx.test.mjs  confere o texto das configurações do nginx (TLS, redirecionamento, HSTS)
 .github/workflows/ci.yml   pipeline: eslint, vitest, build e npm audit
 ```
 

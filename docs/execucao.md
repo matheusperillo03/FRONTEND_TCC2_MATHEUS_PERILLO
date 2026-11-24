@@ -45,6 +45,36 @@ docker build --build-arg VITE_API_URL=http://localhost:8100 -t osint-frontend .
 docker build --build-arg VITE_MOCK=1 -t osint-frontend-mock .   # imagem só com dados sintéticos
 ```
 
+### TLS (RNF01, 23/11/2026)
+
+A imagem tem duas configurações do nginx; nenhuma leva certificado.
+
+| Arquivo | Quando | O que faz |
+|---|---|---|
+| `nginx.conf` (padrão) | Uso na própria máquina, ou com um proxy que termina o TLS na frente (o guia de implantação do piloto usa o Tailscale Serve, em `https://<nome>.ts.net`) | Atende http na 8080. Envia `Strict-Transport-Security` só quando o `Host` não é `localhost`, `127.0.0.1` nem `[::1]`, isto é, quando o pedido veio pelo proxy com TLS |
+| `nginx-tls.conf` | TLS no próprio nginx (`nginx -c /etc/nginx/nginx-tls.conf -g "daemon off;"`; é o que faz o `docker-compose.tls.yml` do back-end) | Atende HTTPS na 8443 (TLS 1.2 e 1.3) com `/etc/nginx/tls/servidor.crt` e `servidor.key`, montados por volume só de leitura. HSTS em toda resposta HTTPS. Na 8080, pedido http que não vem da própria máquina recebe `308` para `https://$host` (porta 443); o da própria máquina é atendido, para o operador e para o *healthcheck* |
+
+`nginx-servidor.conf` é o corpo do `server` (as *locations*), igual nos dois modos; `nginx-cabecalhos.conf` continua sendo o arquivo único dos cabeçalhos e ganhou o HSTS (`max-age` de um ano, sem `includeSubDomains` nem `preload`, porque o nome pode ser de um domínio de terceiros).
+
+- **Certificado.** Fica numa pasta do *host*, fora do repositório; `tls/`, `*.key`, `*.pem` e `*.crt` estão no `.gitignore` e no `.dockerignore`. A chave precisa ser legível pelo usuário `nginx` do contêiner (o processo não roda como root).
+- **Cookies.** A aplicação não usa cookie: o token da sessão vai no cabeçalho `Authorization` e fica no `sessionStorage`. Não há atributo `Secure` a configurar.
+- **API.** O nginx repassa à API o `Host` recebido e `X-Forwarded-Proto` com o esquema real. A API recusa (`421`) o `Host` que não é local nem o `URL_PUBLICA` dela (`docs/seguranca.md` do back-end, "Acesso de fora da máquina e TLS").
+- **O que tem teste.** `scripts/nginx.test.mjs` confere o texto das configurações. Em 23/11/2026, `nginx -t` passou para o `nginx.conf` (com o `nginx-servidor.conf` e o `nginx-cabecalhos.conf` montados, imagem `nginx:alpine`). A sintaxe do `nginx-tls.conf` e o comportamento em execução **não foram conferidos** (o Docker da máquina de desenvolvimento parou de iniciar contêineres). Roteiro, com um certificado sintético:
+
+```bash
+mkdir -p /tmp/tls-sintetico && openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+  -subj "/CN=nome-sintetico.exemplo" -keyout /tmp/tls-sintetico/servidor.key -out /tmp/tls-sintetico/servidor.crt
+chmod 644 /tmp/tls-sintetico/servidor.key      # só para este teste; a chave é descartável
+docker build -t osint-frontend .
+docker run --rm -v /tmp/tls-sintetico:/etc/nginx/tls:ro osint-frontend nginx -t -c /etc/nginx/nginx-tls.conf
+docker run --rm -d --name osint-frontend-tls -v /tmp/tls-sintetico:/etc/nginx/tls:ro \
+  -p 127.0.0.1:18443:8443 -p 127.0.0.1:18080:8080 osint-frontend nginx -c /etc/nginx/nginx-tls.conf -g "daemon off;"
+curl -sI -H 'Host: nome-sintetico.exemplo' http://127.0.0.1:18080/      # esperado: 308 e Location https://
+curl -skI https://127.0.0.1:18443/ | grep -i strict                     # esperado: max-age=31536000
+curl -sI http://127.0.0.1:18080/saude                                   # esperado: 200, sem HSTS
+docker stop osint-frontend-tls
+```
+
 ## Variáveis de ambiente
 
 | Variável | Padrão | Uso |

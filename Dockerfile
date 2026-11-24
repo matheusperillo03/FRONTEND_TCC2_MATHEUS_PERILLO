@@ -27,12 +27,17 @@ FROM nginx:alpine AS runtime
 RUN rm /etc/nginx/conf.d/default.conf \
     && mkdir -p /var/cache/nginx /var/run/nginx \
     && chown -R nginx:nginx /var/cache/nginx /var/run/nginx /var/log/nginx
+# nginx.conf: sem TLS (localhost ou proxy com TLS na frente). nginx-tls.conf: TLS no
+# próprio nginx, escolhido na execução (`nginx -c /etc/nginx/nginx-tls.conf`), com o
+# certificado montado por volume em /etc/nginx/tls. A imagem não leva certificado nem chave.
 COPY nginx.conf /etc/nginx/nginx.conf
+COPY nginx-tls.conf /etc/nginx/nginx-tls.conf
+COPY nginx-servidor.conf /etc/nginx/servidor-comum.conf
 COPY nginx-cabecalhos.conf /etc/nginx/cabecalhos-seguranca.conf
 COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
 
 USER nginx
-EXPOSE 8080
+EXPOSE 8080 8443
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -q -T 2 -O /dev/null http://127.0.0.1:8080/saude || exit 1
 CMD ["nginx", "-g", "daemon off;"]
