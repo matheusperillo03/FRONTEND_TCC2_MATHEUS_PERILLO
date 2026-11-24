@@ -28,6 +28,7 @@ export const ROTULOS_TIPO_ARESTA: Record<TipoAresta, string> = {
   edital_de: 'edital de',
   convenente_de: 'convenente de',
   concedente_de: 'concedente de',
+  despesa_de_campanha: 'despesa de campanha com',
 };
 
 /**
@@ -73,6 +74,7 @@ export const ESTILO_ARESTA: Record<TipoAresta, { cor: string; estilo: 'solid' | 
   edital_de: { cor: PALETA.ciano, estilo: 'dashed' },
   convenente_de: { cor: PALETA.indigo, estilo: 'solid' },
   concedente_de: { cor: PALETA.indigo, estilo: 'dotted' },
+  despesa_de_campanha: { cor: PALETA.magenta, estilo: 'dashed' },
 };
 
 export function rotuloTipoNo(tipo: string): string {

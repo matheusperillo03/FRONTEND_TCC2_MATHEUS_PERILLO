@@ -49,7 +49,7 @@ Acompanham as correções do back-end (seção "Três riscos do piloto corrigido
 
 ## Tipologias de lavagem e alerta de combinação
 
-Acompanham o back-end (contrato da API das tipologias L e da combinação). Códigos novos: L1, L3, L4, L5, L6, L7, L8, L10, L14, L15, L16 e COMB (não existem L2, L9, L11, L12 e L13).
+Acompanham o back-end (contrato da API das tipologias L e da combinação). Códigos novos: L1, L3, L4, L5, L6, L7, L8, L10, L14, L15, L16 e COMB (não existem L2, L11 e L12; L9 e L13 vieram depois, com a ligação de registros de pessoas, na seção seguinte).
 
 - **Aba Tipologias.** O catálogo vem em três grupos: contratações (T), lavagem e ocultação (L) e combinação. Cada cartão mostra o grupo, o peso na combinação e, nos sinais fracos (L14 e L15), o selo e o texto "sinal fraco: sozinho não indica nada; só pesa no alerta de combinação". `l6_limites` vira uma tabela ano → limite do MEI (com o limite mensal do ano de início e a fonte), mais ME e EPP; `comb_pesos` vira uma tabela tipologia → peso.
 - **Aba Alertas.** Três blocos: (a) **combinação em destaque**, com a tabela dos componentes (código, tipologia, título, peso e "conta" ou "não conta", com a observação), a soma dos pesos e o número de tipologias distintas contra os mínimos, e o aviso de que não é escore de culpa; cada componente leva ao cartão do alerta (rolagem e foco, sem biblioteca); (b) alertas por tipologia; (c) **sinais fracos**, à parte e recolhidos. Todo cartão L ou COMB traz no alto o aviso "Pista, não conclusão" (RF12); nos T o aviso continua na seção da decisão. O filtro e a seleção para executar incluem os códigos novos, por grupo, e o formulário aceita os quinze limiares novos por execução (recolhidos em "Limiares das tipologias de lavagem e da combinação").
@@ -57,6 +57,16 @@ Acompanham o back-end (contrato da API das tipologias L e da combinação). Cód
 - **Grafo.** Tipo de nó `convenio` e arestas `convenente_de` e `concedente_de`, com cor, forma e rótulo próprios.
 - **Campos opcionais.** `grupo`, `sinal_fraco` e `peso` (catálogo e alerta) são opcionais na leitura: numa resposta antiga, o grupo é deduzido do código (T, L ou COMB) e nada mais muda.
 - **Simulado.** A ALFA tem um alerta L normal (L6) e um sinal fraco (L14), além de T1, T2 e T3. A combinação não é fixa: o simulado a calcula a cada execução, a partir dos alertas cuja primeira entidade é a mesma (simplificação), sem os descartados; com os mínimos padrão (2 tipologias, peso 2) saem duas, a da ALFA e a da ZETA. Os limiares, o `prefere_evitar` e o texto das políticas das L são ilustrativos (os reais vêm do back-end); CEPIM, CEAF e convênios não têm carga sintética (a coleta fecha sem capturas, com aviso).
+
+## Ligação de registros de pessoas (H46, H50, H51 e H52)
+
+Acompanha o back-end (decisão do autor de 23/11/2026, opção (a)). O título eleitoral e o resumo dele nunca chegam ao front; do CPF do candidato, só os seis dígitos visíveis.
+
+- **Aba Coleta.** Fonte nova **TSE — bens declarados pelos candidatos** (`tse_bens`): diretório, UF e ano opcionais e "só os candidatos do caso" (`do_caso`), sem município. A fonte `tse_arquivo` passou a se chamar "TSE — candidaturas, receitas e despesas de campanha", porque também lê as despesas contratadas.
+- **Aba Entidades, sugestões de resolução.** Cada sugestão mostra a situação (pendente, confirmada ou descartada pelo investigador, com quem, quando e a justificativa). Investigador e responsável confirmam ou descartam com justificativa obrigatória (`POST /casos/{id}/sugestoes/{sugestao_id}/decisao`); o leitor só vê a situação. Confirmar **não funde** os registros, e a decisão vale para o par, nos dois sentidos. O `ClienteHttp` adapta o item que o back-end devolve (`id`, `candidata_id`, `candidata_rotulo`, `candidata_identificador`, `candidata_tipo`, `score`) ao formato da tela (`adaptarSugestao`).
+- **Aba Entidades, candidato.** Bloco "Outras candidaturas da mesma pessoa" (ano, cargo, UF, situação e botão para abrir a outra entidade) e bloco "Linha do tempo patrimonial" (`GET /casos/{id}/entidades/{eid}/patrimonio`): por eleição, total declarado, quantidade, soma por tipo, lista dos bens em detalhe expansível e a captura de origem com o SHA-256; variações entre eleições; "sem arquivo de bens coletado" quando o total é nulo; e o aviso de que, sem renda pública conhecida, não há alerta. A nota "valor informado pelo candidato" fica sempre visível.
+- **Grafo e tipologias.** Aresta `despesa_de_campanha` (candidato → empresa fornecedora) e códigos L9 e L13 no catálogo, no filtro e na seleção para executar. O formulário de limiares da aba Alertas ainda não tem campos de L9 e L13.
+- **Simulado.** A candidata sintética MARIA EXEMPLO SOUZA tem duas candidaturas ligadas (`cand-2`, de 2020, e `cand-3`, de 2024), bens nas duas eleições, uma despesa de campanha e uma sugestão pendente com a sócia `pes-2`. O simulado aplica as regras do back-end na decisão (403 para leitor, justificativa obrigatória, par nos dois sentidos, sem fusão, entrada `sugestao.decidir` na auditoria) e não gera alertas de L9 nem de L13.
 
 ## Importação sob ordem judicial (RF10)
 
@@ -218,7 +228,7 @@ Erros do back-end aparecem com o motivo e o que fazer: justificativa recusada (4
 - `src/telas/abas/AbaAlertas.test.tsx`: ordem por severidade com a política de cada tipologia; descarte com justificativa muda a situação na tela, gera o evento na auditoria e alimenta o filtro por situação.
 - `src/telas/abas/AbaColeta.test.tsx`: tabela por fonte com sucesso ou falha, tentativas, motivo e versão do conector; atualização ao fim de uma coleta que falha; recoleta com *hash* igual; comparação com *hash* diferente e campos alterados.
 - `src/telas/Casos.test.tsx`: o caso só é criado com finalidade e prazo de retenção; a lista mostra os dois e marca o caso vencido.
-- `src/telas/abas/AbaEntidades.test.tsx`: homônimo aparece só como sugestão "não fundida"; a entidade mantém o próprio identificador.
+- `src/telas/abas/AbaEntidades.test.tsx`: homônimo aparece só como sugestão "não fundida"; a entidade mantém o próprio identificador. Decisão da sugestão (H46), outras candidaturas (H50) e linha do tempo patrimonial (H51).
 - `src/telas/abas/AbaAuditoria.test.tsx`: estados da verificação da cadeia (em andamento, íntegra, violada com `primeira_quebra`, erro).
 - `src/componentes/JustificativaBarra.test.tsx`: aviso sem justificativa, persistência na sessão e recusa de caractere de controle.
 - `src/sessao/SessaoContext.test.tsx`: `sair()` limpa *token*, usuário e justificativa (estado e `sessionStorage`).
@@ -263,7 +273,7 @@ Onde a seção 5 de `docs/mvp-escopo.md` não fixa o formato, o front assumiu o 
 
 - `GET /casos/{id}`: o caso com um objeto `contagens: {entidades, alertas, capturas, coletas?, sugestoes?, monitoramentos?, avisos_nao_lidos?}` (opcional na interface; sem `avisos_nao_lidos`, a aba Monitoramento não mostra contagem).
 - Os campos novos do horizonte 1 (`finalidade`, `retencao_ate` e `somente_leitura` no caso; `situacao`, `decisao`, `decisoes`, `politica_erro`, `prefere_evitar`, `tipologia_nome` e `ativo` no alerta; `coleta_id`, `situacao`, `tentativas`, `motivo` e o conector na coleta) seguem a tabela de rotas do README do back-end. Na interface eles são opcionais: um alerta sem `situacao` é tratado como pendente, e um caso sem `retencao_ate` aparece sem prazo.
-- `GET /casos/{id}/entidades/{eid}`: campos `fontes: [{captura_id, fonte?, url_ou_arquivo?}]` e `sugestoes: [{entidade_id, rotulo, identificador?, motivo, confianca?}]`.
+- `GET /casos/{id}/entidades/{eid}`: campos `fontes: [{captura_id, fonte?, url_ou_arquivo?}]` e `sugestoes` no formato do back-end (`id`, `candidata_id`, `candidata_rotulo`, `candidata_identificador`, `candidata_tipo`, `score`, `motivo`, `situacao` e os campos da decisão), que o `ClienteHttp` adapta para `{id, entidade_id, rotulo, identificador?, tipo?, motivo, confianca?, situacao, ...}`.
 - Identificadores (`id`, `captura_id`, `eid`) podem ser string ou número; a interface compara por `String()`.
 - `X-Justificativa` é exigido pelo front em toda rota sob `/casos/{id}/...`, `/capturas/...` e `/auditoria...`; em `/me`, `GET /casos` e `POST /casos` ele é enviado se existir, mas não é exigido; em `GET /tipologias` e em `GET /importacao-judicial/estado` ele nunca é enviado. Cabeçalhos HTTP só aceitam Latin-1: acentos do português passam; caracteres fora dessa faixa (travessão, emoji) viram `?`.
 - Nós do tipo `contrato` no grafo: no simulado, o contrato liga fornecedor e órgão por duas arestas `contratado_por`. A interface desenha o que o back-end devolver.

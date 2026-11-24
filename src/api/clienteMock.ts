@@ -11,6 +11,8 @@ import {
   ALERTAS,
   ANOTACOES_DEMO,
   ARESTAS,
+  BENS_DECLARADOS_DEMO,
+  CANDIDATURAS_LIGADAS_DEMO,
   ARQUIVOS_JUDICIAIS_DEMO,
   AVISO_COMBINACAO_DEMO,
   AVISOS_DEMO,
@@ -25,6 +27,8 @@ import {
   CONTAS_DEMO,
   DIRETORIO_JUDICIAL_DEMO,
   ENTIDADES,
+  NOTA_PATRIMONIO_DEMO,
+  SEM_RENDA_PUBLICA_DEMO,
   IA_DEMO,
   IMPORTACAO_JUDICIAL_DEMO,
   ITENS_IA_DEMO,
@@ -87,12 +91,14 @@ import {
   type Grafo,
   type IaEstado,
   type Id,
+  type LinhaDoTempoPatrimonial,
   type ImportacaoJudicial,
   type Me,
   type Membro,
   type Monitoramento,
   type NovaAnotacao,
   type NovaDecisao,
+  type NovaDecisaoSugestao,
   type NovaDecisaoJudicial,
   type NovaImportacaoJudicial,
   type NovaTarefa,
@@ -112,7 +118,9 @@ import {
   type SessaoLogin,
   type SituacaoMonitoramento,
   type SituacaoTarefa,
+  type PontoPatrimonial,
   type SugestaoIa,
+  type SugestaoResolucao,
   type Tarefa,
   type TextoCaptura,
   type TipologiaCatalogo,
@@ -197,7 +205,7 @@ export class ClienteMock implements ApiCliente {
   private readonly tokens: Record<string, Me>;
 
   private casos: Caso[] = [{ ...CASO_DEMO }];
-  private entidadesPorCaso = new Map<string, EntidadeDetalhe[]>([[String(CASO_DEMO.id), ENTIDADES.map((e) => ({ ...e }))]]);
+  private entidadesPorCaso = new Map<string, EntidadeDetalhe[]>([[String(CASO_DEMO.id), ENTIDADES.map(clonarEntidade)]]);
   private arestasPorCaso = new Map<string, Grafo['arestas']>([[String(CASO_DEMO.id), [...ARESTAS]]]);
   private alertasPorCaso = new Map<string, Alerta[]>();
   private capturas: Captura[] = [...CAPTURAS, ...CAPTURAS_MONITORAMENTO].map((c) => ({ ...c }));
@@ -475,8 +483,15 @@ export class ClienteMock implements ApiCliente {
     const contratos = entidades.filter((e) => e.tipo === 'contrato');
     if (corpo.fonte === 'cnpj_arquivo' && !corpo.parametros.diretorio?.trim()) return { parametros, erro: 'Parâmetro "diretorio" obrigatório' };
     if (corpo.fonte === 'pncp' && !/^\d{8}$/.test(corpo.parametros.dataInicial ?? '')) return { parametros, erro: 'dataInicial deve estar no formato AAAAMMDD' };
-    if ((corpo.fonte === 'tse_arquivo' || corpo.fonte === 'edital_arquivo') && !corpo.parametros.diretorio?.trim()) {
+    if ((corpo.fonte === 'tse_arquivo' || corpo.fonte === 'tse_bens' || corpo.fonte === 'edital_arquivo') && !corpo.parametros.diretorio?.trim()) {
       return { parametros, erro: 'Parâmetro "diretorio" obrigatório' };
+    }
+    if (corpo.fonte === 'tse_bens' && corpo.parametros.do_caso) {
+      // H50: `do_caso` vira a lista dos SQ_CANDIDATO das candidaturas que já estão no caso.
+      const sqs = [...new Set(entidades.filter((e) => e.tipo === 'candidato').map((e) => String(e.atributos.sq_candidato ?? '')).filter((sq) => /^\d+$/.test(sq)))].sort();
+      if (!sqs.length) return { parametros, erro: "O caso não tem candidato para filtrar (colete antes o arquivo de candidatos do TSE, com 'uf' e 'municipio')." };
+      delete parametros.do_caso;
+      parametros.candidatos = sqs;
     }
     if (corpo.fonte === 'portal_transparencia') {
       const p = corpo.parametros;
@@ -589,7 +604,7 @@ export class ClienteMock implements ApiCliente {
     const idsDasCargas = new Set(cargas.map((c) => String(c.id)));
     for (const ent of ENTIDADES.filter((e) => idsDasCargas.has(String(e.fontes[0]?.captura_id)))) {
       if (!entidadesExistentes.some((e) => mesmoId(e.id, ent.id))) {
-        novas.push({ ...ent });
+        novas.push(clonarEntidade(ent));
       }
     }
     this.entidadesPorCaso.set(chave, [...entidadesExistentes, ...novas]);
@@ -693,7 +708,124 @@ export class ClienteMock implements ApiCliente {
     const ent = this.entidades(casoId).find((e) => mesmoId(e.id, entidadeId));
     if (!ent) throw new ErroApi(404, `/casos/${casoId}/entidades/${entidadeId}`, 'Entidade não encontrada');
     const idsNoCaso = new Set(this.entidades(casoId).map((e) => String(e.id)));
-    return { ...ent, fontes: ent.fontes.map((f) => ({ ...f })), sugestoes: ent.sugestoes.filter((s) => idsNoCaso.has(String(s.entidade_id))).map((s) => ({ ...s })) };
+    return {
+      ...ent,
+      fontes: ent.fontes.map((f) => ({ ...f })),
+      sugestoes: ent.sugestoes.filter((s) => idsNoCaso.has(String(s.entidade_id))).map(sugestaoSaida),
+      outras_candidaturas: this.candidaturasDaPessoa(casoId, ent)
+        .filter((c) => !mesmoId(c.id, ent.id))
+        .map((c) => ({ entidade_id: c.id, rotulo: c.rotulo, ...dadosDaCandidatura(c), situacao_turno: String(c.atributos.situacao_turno ?? '') })),
+    };
+  }
+
+  /**
+   * Candidaturas da mesma pessoa que estão no caso, da eleição mais antiga para a mais recente
+   * (H50). O simulado só conhece o resultado da ligação (`CANDIDATURAS_LIGADAS_DEMO`): não há
+   * título eleitoral nem resumo dele aqui. Quem não é candidato não tem candidaturas.
+   */
+  private candidaturasDaPessoa(casoId: Id, ent: EntidadeDetalhe): EntidadeDetalhe[] {
+    if (ent.tipo !== 'candidato') return [];
+    const grupo = CANDIDATURAS_LIGADAS_DEMO.find((g) => g.some((id) => mesmoId(id, ent.id))) ?? [ent.id];
+    return this.entidades(casoId)
+      .filter((e) => e.tipo === 'candidato' && grupo.some((id) => mesmoId(id, e.id)))
+      .sort((a, b) => String(a.atributos.ano ?? '').localeCompare(String(b.atributos.ano ?? '')));
+  }
+
+  /**
+   * RF02 (H46; decisão do autor de 23/11/2026): o investigador confirma ou descarta a sugestão,
+   * com justificativa. Como no back-end, a decisão vale para o par (os dois sentidos), fica na
+   * auditoria e NÃO funde as entidades; rever é uma nova decisão.
+   */
+  async decidirSugestao(casoId: Id, sugestaoId: Id, corpo: NovaDecisaoSugestao): Promise<SugestaoResolucao> {
+    const me = this.autenticar();
+    const justificativaAcesso = this.exigirJustificativa('decidir_sugestao');
+    await this.esperar();
+    const caso = this.caso(casoId);
+    const rota = `/casos/${casoId}/sugestoes/${sugestaoId}/decisao`;
+    this.exigirPapel(me, casoId, justificativaAcesso, 'investigador', 'sugestao.decidir');
+    if (this.vencido(caso)) {
+      this.registrar(me.usuario, 'caso.retencao_recusa', casoId, justificativaAcesso, { acao_recusada: 'sugestao.decidir', retencao_ate: caso.retencao_ate });
+      throw new ErroApi(403, rota, `O prazo de retenção deste caso terminou em ${caso.retencao_ate}: o caso está só para leitura.`);
+    }
+    const justificativa = (corpo.justificativa ?? '').trim();
+    if (corpo.decisao !== 'confirmado' && corpo.decisao !== 'descartado') throw new ErroApi(422, rota, 'decisao: use "confirmado" ou "descartado"');
+    if (!/[\p{L}\p{N}]/u.test(justificativa)) throw new ErroApi(422, rota, 'justificativa: a justificativa da decisão é obrigatória');
+    if (justificativa.length > 500) throw new ErroApi(422, rota, 'justificativa: no máximo 500 caracteres');
+    const entidades = this.entidades(casoId);
+    const dona = entidades.find((e) => e.sugestoes.some((s) => s.id !== undefined && mesmoId(s.id, sugestaoId)));
+    const sugestao = dona?.sugestoes.find((s) => s.id !== undefined && mesmoId(s.id, sugestaoId));
+    if (!dona || !sugestao) throw new ErroApi(404, rota, `Sugestão ${sugestaoId} não encontrada no caso.`);
+    const situacaoAnterior = sugestao.situacao ?? 'pendente';
+    const decididoEm = new Date().toISOString();
+    // O par: a sugestão pedida e a do sentido contrário (da outra entidade para esta).
+    const outra = entidades.find((e) => mesmoId(e.id, sugestao.entidade_id));
+    const par = [sugestao, ...(outra?.sugestoes.filter((s) => mesmoId(s.entidade_id, dona.id)) ?? [])];
+    for (const item of par) {
+      item.situacao = corpo.decisao;
+      item.decidido_por = me.usuario;
+      item.decidido_em = decididoEm;
+      item.justificativa_decisao = justificativa;
+    }
+    this.registrar(me.usuario, 'sugestao.decidir', casoId, justificativaAcesso, {
+      sugestao_id: sugestao.id,
+      entidade_id: dona.id,
+      candidata_id: sugestao.entidade_id,
+      decisao: corpo.decisao,
+      justificativa_decisao: justificativa,
+      situacao_anterior: situacaoAnterior,
+      revisao: situacaoAnterior !== 'pendente',
+      decidido_em: decididoEm,
+    });
+    return sugestaoSaida(sugestao);
+  }
+
+  /**
+   * RF05 (H51): bens declarados ao TSE em cada eleição em que a pessoa foi candidata, somados e
+   * por tipo, com a captura de origem. Sem renda pública conhecida não há alerta.
+   */
+  async obterPatrimonio(casoId: Id, entidadeId: Id): Promise<LinhaDoTempoPatrimonial> {
+    await this.casoAberto('patrimonio.ver', casoId, { entidade_id: entidadeId });
+    const rota = `/casos/${casoId}/entidades/${entidadeId}/patrimonio`;
+    const ent = this.entidades(casoId).find((e) => mesmoId(e.id, entidadeId));
+    if (!ent) throw new ErroApi(404, rota, `Entidade ${entidadeId} não encontrada no caso.`);
+    if (ent.tipo !== 'candidato') throw new ErroApi(422, rota, 'A linha do tempo patrimonial só existe para candidato (bens declarados ao TSE).');
+    const candidaturas = this.candidaturasDaPessoa(casoId, ent);
+    const capturasDoCaso = this.capturasPorCaso.get(String(casoId)) ?? [];
+    const pontos = candidaturas.map((c): PontoPatrimonial => {
+      const declarados = BENS_DECLARADOS_DEMO[String(c.id)];
+      // Só há total quando a captura do arquivo de bens está no caso; sem ela, `null` (não é zero).
+      const captura = declarados && capturasDoCaso.some((id) => mesmoId(id, declarados.captura_id)) ? this.capturas.find((x) => mesmoId(x.id, declarados.captura_id)) : undefined;
+      const bens = captura ? declarados.bens.map((b) => ({ ...b })) : [];
+      const porTipo = new Map<string, number[]>();
+      for (const b of bens) if (b.valor !== null) porTipo.set(b.tipo || 'Tipo não informado', [...(porTipo.get(b.tipo || 'Tipo não informado') ?? []), b.valor]);
+      return {
+        entidade_id: c.id,
+        rotulo: c.rotulo,
+        ...dadosDaCandidatura(c),
+        total: captura ? arredondar(bens.reduce((soma, b) => soma + (b.valor ?? 0), 0)) : null,
+        quantidade: bens.length,
+        por_tipo: [...porTipo.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tipo, valores]) => ({ tipo, total: arredondar(valores.reduce((x, y) => x + y, 0)), quantidade: valores.length })),
+        bens,
+        captura_id: captura?.id ?? null,
+        sha256: captura?.sha256 ?? null,
+        fonte: captura?.fonte ?? null,
+        url_ou_arquivo: captura?.url_ou_arquivo ?? null,
+      };
+    });
+    const comValor = pontos.filter((p): p is PontoPatrimonial & { total: number } => p.total !== null);
+    const variacoes = comValor.slice(1).map((atual, i) => {
+      const anterior = comValor[i];
+      const diferenca = arredondar(atual.total - anterior.total);
+      return { de_ano: anterior.ano, para_ano: atual.ano, diferenca, percentual: anterior.total ? arredondar((diferenca / anterior.total) * 100) : null };
+    });
+    return {
+      entidade_id: ent.id,
+      ligacao: candidaturas.length > 1 ? 'titulo_eleitoral' : 'candidatura_unica',
+      nota: NOTA_PATRIMONIO_DEMO,
+      pontos,
+      variacoes,
+      renda_publica: { conhecida: false, motivo: SEM_RENDA_PUBLICA_DEMO },
+    };
   }
 
   async obterGrafo(casoId: Id, centro: Id, profundidade: number): Promise<Grafo> {
@@ -2361,6 +2493,22 @@ export class ClienteMock implements ApiCliente {
     return { total: todos.length, itens: structuredClone(todos.slice(deslocamento, deslocamento + limite)) };
   }
 }
+
+/** Cópia da entidade sintética: as sugestões são alteradas pela decisão e não podem ser as do módulo. */
+function clonarEntidade(e: EntidadeDetalhe): EntidadeDetalhe {
+  return { ...e, sugestoes: e.sugestoes.map((s) => ({ ...s })) };
+}
+
+/** Sugestão como o cliente a devolve: situação sempre presente (`pendente` quando não decidida). */
+function sugestaoSaida(s: SugestaoResolucao): SugestaoResolucao {
+  return { ...s, situacao: s.situacao ?? 'pendente', decidido_por: s.decidido_por ?? null, decidido_em: s.decidido_em ?? null, justificativa_decisao: s.justificativa_decisao ?? null };
+}
+
+function dadosDaCandidatura(c: EntidadeDetalhe): { ano: string; cargo: string; uf: string } {
+  return { ano: String(c.atributos.ano ?? ''), cargo: String(c.atributos.cargo ?? ''), uf: String(c.atributos.uf ?? '') };
+}
+
+const arredondar = (v: number): number => Math.round(v * 100) / 100;
 
 function clonarTarefa(t: Tarefa): Tarefa {
   return { ...t, historico: t.historico.map((h) => ({ ...h, alteracoes: Object.fromEntries(Object.entries(h.alteracoes).map(([campo, m]) => [campo, { ...m }])) })) };

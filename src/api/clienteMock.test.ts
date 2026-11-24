@@ -191,7 +191,7 @@ describe('ClienteMock — horizonte 2 do backlog', () => {
     const catalogo = await c.listarTipologias();
     expect(catalogo.map((t) => t.codigo)).toEqual([
       'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10',
-      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16',
+      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16',
       'COMB',
     ]);
     const t5 = catalogo.find((t) => t.codigo === 'T5')!;
@@ -345,7 +345,7 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
     expect(catalogo.filter((t) => t.sinal_fraco).map((t) => [t.codigo, t.peso])).toEqual([['L14', 0.5], ['L15', 0.5]]);
     expect(catalogo.find((t) => t.codigo === 'L8')).toMatchObject({ severidade: 'alta', peso: 0 });
     expect(Object.fromEntries(catalogo.filter((t) => t.codigo.startsWith('L')).map((t) => [t.codigo, t.severidade]))).toEqual({
-      L1: 'baixa', L3: 'media', L4: 'media', L5: 'baixa', L6: 'media', L7: 'media', L8: 'alta', L10: 'media', L14: 'baixa', L15: 'baixa', L16: 'media',
+      L1: 'baixa', L3: 'media', L4: 'media', L5: 'baixa', L6: 'media', L7: 'media', L8: 'alta', L9: 'alta', L10: 'media', L13: 'media', L14: 'baixa', L15: 'baixa', L16: 'media',
     });
     const l6 = catalogo.find((t) => t.codigo === 'L6')!;
     const limites = l6.parametros.find((p) => p.nome === 'l6_limites')!;

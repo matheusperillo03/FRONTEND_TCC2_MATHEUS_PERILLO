@@ -39,7 +39,8 @@ describe('AbaColeta — falhas por fonte (RNF12) e versão do conector (RF07)', 
     );
     // As três mais antigas são as do horizonte 1; as do horizonte 2 vêm antes, por serem mais recentes.
     const todas = await screen.findAllByTestId('coleta');
-    expect(todas).toHaveLength(13);
+    // 13 coletas até o horizonte 2 e a dos bens declarados ao TSE (H50).
+    expect(todas).toHaveLength(14);
     const linhas = todas.slice(-3);
     const falha = linhas[1];
     expect(within(falha).getByText('pncp', { selector: 'code' })).toBeInTheDocument();
@@ -175,7 +176,7 @@ describe('AbaColeta — falhas por fonte (RNF12) e versão do conector (RF07)', 
     expect(within(comparacao).getAllByTestId('captura-comparada')).toHaveLength(3);
     expect(within(comparacao).getAllByText('igual')).toHaveLength(3);
     // A coleta original continua no histórico, e a nova aparece como recoleta dela.
-    await waitFor(() => expect(screen.getAllByTestId('coleta')).toHaveLength(14));
+    await waitFor(() => expect(screen.getAllByTestId('coleta')).toHaveLength(15));
     expect(screen.getByText('recoleta de col-1')).toBeInTheDocument();
   });
 });
@@ -360,7 +361,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
 
   it('TSE: "só os candidatos do caso" envia do_caso e a tela explica a leitura em fluxo de arquivo grande', async () => {
     const { usuario, enviar } = renderizar();
-    await usuario.click(screen.getByLabelText(/TSE — candidaturas e receitas de campanha/));
+    await usuario.click(screen.getByLabelText(/TSE — candidaturas, receitas e despesas de campanha/));
     await usuario.type(screen.getByLabelText('Diretório com os arquivos do TSE'), 'tse');
     expect(screen.getByText(/é lido em fluxo e exige ao menos um filtro/)).toBeInTheDocument();
     await usuario.click(screen.getByLabelText('Ler só as linhas dos candidatos que já estão no caso'));
@@ -389,9 +390,26 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
     expect(await enviar()).toEqual({ fonte: 'pncp_termos', parametros: { do_caso: true } });
   });
 
+  it('H50: bens declarados ao TSE — diretório obrigatório, UF e ano opcionais, "só os candidatos do caso" envia do_caso, sem município', async () => {
+    const { usuario, enviar } = renderizar();
+    await usuario.click(screen.getByLabelText(/TSE — bens declarados pelos candidatos/));
+    const botao = screen.getByRole('button', { name: 'Iniciar coleta' });
+    expect(botao).toBeDisabled();
+    expect(screen.queryByLabelText('Município (opcional)')).not.toBeInTheDocument();
+    expect(screen.getByText(/valor informado pelo candidato/)).toBeInTheDocument();
+    await usuario.type(screen.getByLabelText('Diretório com os arquivos de bens do TSE'), 'tse/bens');
+    expect(await enviar()).toEqual({ fonte: 'tse_bens', parametros: { diretorio: 'tse/bens' } });
+    await usuario.type(screen.getByLabelText('UF (opcional)'), 'go');
+    await usuario.type(screen.getByLabelText('Ano da eleição (opcional)'), '202');
+    expect(botao).toBeDisabled();
+    await usuario.type(screen.getByLabelText('Ano da eleição (opcional)'), '4');
+    await usuario.click(screen.getByLabelText('Ler só os bens dos candidatos que já estão no caso'));
+    expect(await enviar()).toEqual({ fonte: 'tse_bens', parametros: { diretorio: 'tse/bens', uf: 'GO', ano: '2024', do_caso: true } });
+  });
+
   it('TSE: diretório obrigatório, UF e município opcionais', async () => {
     const { usuario, enviar } = renderizar();
-    await usuario.click(screen.getByLabelText(/TSE — candidaturas e receitas de campanha/));
+    await usuario.click(screen.getByLabelText(/TSE — candidaturas, receitas e despesas de campanha/));
     expect(screen.getByRole('button', { name: 'Iniciar coleta' })).toBeDisabled();
     await usuario.type(screen.getByLabelText('Diretório com os arquivos do TSE'), 'tse');
     expect(await enviar()).toEqual({ fonte: 'tse_arquivo', parametros: { diretorio: 'tse' } });
@@ -402,7 +420,7 @@ describe('AbaColeta — fontes do horizonte 2 (H19)', () => {
 
   it('TSE: o ano da eleição é opcional, vai como texto de quatro dígitos e bloqueia o envio fora desse formato', async () => {
     const { usuario, enviar } = renderizar();
-    await usuario.click(screen.getByLabelText(/TSE — candidaturas e receitas de campanha/));
+    await usuario.click(screen.getByLabelText(/TSE — candidaturas, receitas e despesas de campanha/));
     await usuario.type(screen.getByLabelText('Diretório com os arquivos do TSE'), 'tse');
     const ano = screen.getByLabelText('Ano da eleição (opcional)');
     const botao = screen.getByRole('button', { name: 'Iniciar coleta' });
