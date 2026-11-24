@@ -14,3 +14,8 @@ PROGRESSO.md
 README.md
 Dockerfile
 .dockerignore
+# Certificados e chaves nunca entram no contexto de build.
+tls
+*.key
+*.pem
+*.crt
