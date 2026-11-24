@@ -1,7 +1,7 @@
 // @vitest-environment node
 // RNF01: configuração do nginx para TLS, redirecionamento para https e HSTS.
 // Confere só o texto dos arquivos. A sintaxe e o comportamento precisam do nginx em execução
-// (`nginx -t` e `curl`; roteiro no README, "TLS").
+// (`nginx -t` e `curl`; roteiro em docs/execucao.md, "TLS").
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';

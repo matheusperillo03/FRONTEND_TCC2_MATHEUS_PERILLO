@@ -9,6 +9,7 @@ import { sha256Hex } from '../hash';
 import { ErroApi, ErroAutenticacao, ErroJustificativa } from './erros';
 import {
   ALERTAS,
+  SINAIS_DEMO,
   ANOTACOES_DEMO,
   ARESTAS,
   ARQUIVOS_JUDICIAIS_DEMO,
@@ -174,6 +175,7 @@ const FAIXAS_LAVAGEM = {
   l1_minimo_estabelecimentos: { inteiro: true, minimo: 2 },
   l1_janela_abertura_dias: { inteiro: true, minimo: 1 },
   l1_minimo_abertas_na_janela: { inteiro: true, minimo: 2 },
+  l2_minimo_empresas: { inteiro: true, minimo: 2 },
   l3_minimo_empresas: { inteiro: true, minimo: 2 },
   l3_minimo_abertas_na_janela: { inteiro: true, minimo: 1 },
   l3_janela_meses: { inteiro: true, minimo: 1 },
@@ -756,6 +758,9 @@ export class ClienteMock implements ApiCliente {
    * das demais ficam como estavam. Dos limiares por execução, o simulado aplica
    * os três do horizonte 2 aos alertas sintéticos de T5 e de T8, o valor mínimo
    * da L14 e os dois mínimos da combinação; os demais são só validados.
+   *
+   * Sinais fracos (H49: L2, L14 e L15) não geram alerta: são avaliados só quando a
+   * combinação roda e entram nela como componentes sem alerta próprio.
    */
   async executarAlertas(casoId: Id, corpo: ExecucaoAlertas = {}): Promise<Alerta[]> {
     const rota = `/casos/${casoId}/alertas/executar`;
@@ -792,7 +797,9 @@ export class ClienteMock implements ApiCliente {
     };
     const idsNoCaso = new Set(this.entidades(casoId).map((e) => String(e.id)));
     const anteriores = this.alertasPorCaso.get(String(casoId)) ?? [];
-    const alertas = ALERTAS.filter((a) => a.entidades.every((e) => idsNoCaso.has(String(e)))).flatMap((a) => {
+    const doCaso = (a: Alerta) => a.entidades.every((e) => idsNoCaso.has(String(e)));
+    const sinais = SINAIS_DEMO.filter((s) => doCaso(s) && dispara(s)).map((s) => ({ ...s, parametros: comLimiar(s) }));
+    const alertas = ALERTAS.filter(doCaso).flatMap((a) => {
       const anterior = anteriores.find((x) => mesmoId(x.id, a.id));
       if (!escolhidas.includes(a.tipologia)) return anterior ? [clonarAlerta(anterior)] : [];
       if (!dispara(a)) return [];
@@ -801,7 +808,7 @@ export class ClienteMock implements ApiCliente {
     });
     // A combinação é a última a rodar, sobre os alertas que ficaram; fora da execução, a anterior é mantida.
     const combinacoes = escolhidas.includes('COMB')
-      ? this.combinar(casoId, alertas, p).map((c) => {
+      ? this.combinar(casoId, alertas, p, sinais).map((c) => {
           const anterior = anteriores.find((x) => mesmoId(x.id, c.id));
           return anterior ? { ...c, situacao: anterior.situacao, decisao: anterior.decisao, decisoes: anterior.decisoes } : c;
         })
@@ -815,13 +822,15 @@ export class ClienteMock implements ApiCliente {
   /**
    * Alerta de combinação (COMB): uma entidade com alertas de tipologias distintas em número e em
    * soma de pesos iguais ou maiores que os mínimos. Simplificação do simulado: a entidade de um
-   * alerta é a primeira da lista `entidades`. Alertas descartados não entram.
+   * alerta é a primeira da lista `entidades`. Alertas descartados não entram. Os `sinais` fracos
+   * (H49) entram como componentes sem alerta próprio: `alerta_id` nulo, situação "sinal" e o motivo.
    */
-  private combinar(casoId: Id, alertas: Alerta[], p: ParametrosTipologias): Alerta[] {
+  private combinar(casoId: Id, alertas: Alerta[], p: ParametrosTipologias, sinais: Alerta[] = []): Alerta[] {
     const minimoTipologias = p.comb_minimo_tipologias ?? PARAMETROS_TIPOLOGIAS_DEMO.comb_minimo_tipologias;
     const pesoMinimo = p.comb_peso_minimo ?? PARAMETROS_TIPOLOGIAS_DEMO.comb_peso_minimo;
     const porEntidade = new Map<string, Alerta[]>();
-    for (const a of alertas) {
+    const ehSinal = (a: Alerta) => sinais.includes(a);
+    for (const a of [...alertas, ...sinais]) {
       if (a.tipologia === 'COMB' || (a.situacao ?? 'pendente') === 'descartado' || !a.entidades.length) continue;
       const chave = String(a.entidades[0]);
       porEntidade.set(chave, [...(porEntidade.get(chave) ?? []), a]);
@@ -831,16 +840,17 @@ export class ClienteMock implements ApiCliente {
       const componentes: ComponenteCombinacao[] = doAlvo.map((a) => {
         const peso = PESOS_COMBINACAO_DEMO[a.tipologia] ?? 0;
         return {
-          alerta_id: a.id,
+          alerta_id: ehSinal(a) ? null : a.id,
           tipologia: a.tipologia,
           tipologia_nome: a.tipologia_nome ?? POLITICAS_DEMO[a.tipologia].nome,
           titulo: a.titulo,
           severidade: a.severidade,
-          situacao: a.situacao ?? 'pendente',
+          situacao: ehSinal(a) ? 'sinal' : (a.situacao ?? 'pendente'),
           peso,
-          sinal_fraco: a.sinal_fraco === true,
+          sinal_fraco: ehSinal(a),
           conta: peso > 0,
           observacao: a.tipologia === 'L8' ? OBSERVACAO_L8_DEMO : '',
+          motivo: ehSinal(a) ? a.motivo : '',
         };
       });
       const contam = componentes.filter((c) => c.conta);
@@ -857,7 +867,7 @@ export class ClienteMock implements ApiCliente {
         tipologia: 'COMB',
         titulo: `Combinação de alertas em ${rotulo}: ${distintas.length} tipologias distintas`,
         motivo:
-          `${rotulo} acumula ${contam.length} alerta(s) de ${distintas.length} tipologias distintas (${distintas.join(', ')}), com soma de pesos ` +
+          `${rotulo} acumula ${contam.length} alerta(s) ou sinal(is) de ${distintas.length} tipologias distintas (${distintas.join(', ')}), com soma de pesos ` +
           `${numero(soma)} (mínimos: ${minimoTipologias} tipologias e peso ${numero(pesoMinimo)}). ${AVISO_COMBINACAO_DEMO}`,
         severidade,
         tipologia_nome: nome,

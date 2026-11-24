@@ -26,6 +26,11 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: ['./src/test/setup.ts'],
       css: false,
+      // Os testes de tela que digitam em formulários grandes (abas Alertas e Coleta) levam cerca
+      // de 2 s cada no pipeline; com a máquina ocupada passam dos 5 s padrão, e o teste que
+      // estoura o tempo ainda derruba o seguinte do mesmo arquivo. 20 s dá folga sem esconder
+      // teste travado.
+      testTimeout: 20_000,
     },
   };
 });
