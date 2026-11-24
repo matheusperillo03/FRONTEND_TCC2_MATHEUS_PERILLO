@@ -124,6 +124,7 @@ import {
   type SugestaoResolucao,
   type Tarefa,
   type TextoCaptura,
+  type TipoEntidade,
   type TipologiaCatalogo,
   type TrocaSenha,
   type UsuarioAdmin,
@@ -697,10 +698,11 @@ export class ClienteMock implements ApiCliente {
     };
   }
 
-  async buscarEntidades(casoId: Id, q: string): Promise<EntidadeResumo[]> {
-    await this.casoAberto('buscar_entidades', casoId, { q });
+  async buscarEntidades(casoId: Id, q: string, tipo?: TipoEntidade): Promise<EntidadeResumo[]> {
+    await this.casoAberto('buscar_entidades', casoId, tipo ? { q, tipo } : { q });
     const termo = normalizar(q);
     return this.entidades(casoId)
+      .filter((e) => !tipo || e.tipo === tipo)
       .filter((e) => !termo || normalizar(e.rotulo).includes(termo) || normalizar(e.identificador).includes(termo) || (soDigitos(e.identificador).includes(soDigitos(termo)) && soDigitos(termo).length > 0) || (/[A-Za-z]/.test(q) && /\d/.test(q) && limparCnpj(e.identificador).includes(limparCnpj(q))))
       .map(({ id, tipo, rotulo, identificador, atributos }) => ({ id, tipo, rotulo, identificador, atributos: { ...atributos } }));
   }

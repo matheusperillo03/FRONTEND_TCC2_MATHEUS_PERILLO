@@ -69,6 +69,7 @@ import type {
   SugestaoResolucao,
   Tarefa,
   TextoCaptura,
+  TipoEntidade,
   TipologiaCatalogo,
   TrocaSenha,
   UsuarioAdmin,
@@ -241,8 +242,8 @@ export class ClienteHttp implements ApiCliente {
     return this.requisitar(`/casos/${enc(casoId)}/coletas/${enc(coletaId)}/recoletar`, { metodo: 'POST', exigeJustificativa: true });
   }
 
-  buscarEntidades(casoId: Id, q: string): Promise<EntidadeResumo[]> {
-    return this.requisitar(`/casos/${enc(casoId)}/entidades`, { query: { q }, exigeJustificativa: true });
+  buscarEntidades(casoId: Id, q: string, tipo?: TipoEntidade): Promise<EntidadeResumo[]> {
+    return this.requisitar(`/casos/${enc(casoId)}/entidades`, { query: { q, tipo }, exigeJustificativa: true });
   }
 
   async obterEntidade(casoId: Id, entidadeId: Id): Promise<EntidadeDetalhe> {

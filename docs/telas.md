@@ -9,6 +9,7 @@
 - **Falhas de coleta (H15, RNF12) e versão do conector (H14, RF07).** Ao fim de cada coleta, com sucesso ou com falha, a aba Coleta atualiza a tabela "Coletas deste caso, por fonte": fonte, conector e versão, situação, tentativas, motivo, início e número de capturas, com aviso quando alguma coleta falhou. O botão "Recoletar e comparar" repete a coleta e mostra, por captura, se o SHA-256 é o mesmo e, se não for, quais campos mudaram, com o valor de antes e o de depois.
 - **Finalidade e retenção (H17, RNF04).** O formulário de novo caso exige a finalidade e o prazo de retenção. A lista e o cabeçalho do caso mostram os dois, e o caso vencido aparece como "só leitura", com a explicação do que continua disponível. A recusa do back-end (403) aparece como erro na ação tentada.
 - **Relatório.** O resumo da aba Relatório mostra as coletas (e quantas falharam) e os alertas pendentes de decisão; o conteúdo do relatório é gerado pelo back-end.
+- **Aba Entidades, filtro por tipo (H09, RF11).** Ao lado do termo de busca, a caixa "Tipo de entidade" oferece "Todos os tipos" e os tipos que a API aceita (`TIPOS_ENTIDADE`). O tipo vai em `GET /casos/{id}/entidades?q=&tipo=`; trocar o tipo depois de uma busca refaz a busca.
 
 ## Horizonte 2 do backlog na interface
 
