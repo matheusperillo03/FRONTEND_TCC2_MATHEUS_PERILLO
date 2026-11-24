@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   GRUPOS_TIPOLOGIA,
   ROTULOS_GRUPO_TIPOLOGIA,
-  TIPOLOGIAS,
+  TIPOLOGIAS_COM_ALERTA,
   grupoDaTipologia,
   mesmoId,
   type Alerta,
@@ -12,7 +12,7 @@ import {
   type ParametrosTipologias,
   type Tipologia,
 } from '../../api';
-import { CartaoAlerta, TEXTO_SINAL_FRACO, irParaCartaoAlerta } from '../../componentes/CartaoAlerta';
+import { CartaoAlerta, irParaCartaoAlerta } from '../../componentes/CartaoAlerta';
 import { Caixa, Campo, Carregando, Mensagem, contar } from '../../componentes/basicos';
 import { useSessao } from '../../sessao/SessaoContext';
 import { useChamada } from '../../sessao/useChamada';
@@ -52,6 +52,7 @@ const LIMIARES_LAVAGEM: LimiarLavagem[] = [
   { nome: 'l1_minimo_estabelecimentos', rotulo: 'L1 — mínimo de estabelecimentos no endereço', dica: 'Inteiro a partir de 2.', inteiro: true, minimo: 2 },
   { nome: 'l1_janela_abertura_dias', rotulo: 'L1 — janela de abertura (dias)', dica: 'Inteiro a partir de 1.', inteiro: true, minimo: 1 },
   { nome: 'l1_minimo_abertas_na_janela', rotulo: 'L1 — mínimo de empresas abertas na janela', dica: 'Inteiro a partir de 2.', inteiro: true, minimo: 2 },
+  { nome: 'l2_minimo_empresas', rotulo: 'L2 — mínimo de empresas com o mesmo telefone ou e-mail', dica: 'Inteiro a partir de 2. Sinal fraco: só pesa na combinação.', inteiro: true, minimo: 2 },
   { nome: 'l3_minimo_empresas', rotulo: 'L3 — mínimo de empresas do mesmo administrador', dica: 'Inteiro a partir de 2.', inteiro: true, minimo: 2 },
   { nome: 'l3_minimo_abertas_na_janela', rotulo: 'L3 — mínimo de empresas abertas na janela', dica: 'Inteiro a partir de 1.', inteiro: true, minimo: 1 },
   { nome: 'l3_janela_meses', rotulo: 'L3 — janela de abertura (meses)', dica: 'Inteiro a partir de 1.', inteiro: true, minimo: 1 },
@@ -67,7 +68,6 @@ const LIMIARES_LAVAGEM: LimiarLavagem[] = [
 ];
 
 const ehCombinacao = (a: Alerta) => grupoDaTipologia(a.tipologia, a.grupo) === 'combinacao';
-const ehSinalFraco = (a: Alerta) => a.sinal_fraco === true && !ehCombinacao(a);
 
 export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologias }: AbaAlertasProps) {
   const { cliente } = useSessao();
@@ -78,14 +78,12 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
   /** Alertas devolvidos pela decisão, por id: substituem os da lista sem nova consulta. */
   const [decididos, setDecididos] = useState<Record<string, Alerta>>({});
   // Execução: tipologias escolhidas e limiares do horizonte 2 (vazio = configuração em vigor).
-  const [escolhidas, setEscolhidas] = useState<Tipologia[]>([...TIPOLOGIAS]);
+  const [escolhidas, setEscolhidas] = useState<Tipologia[]>([...TIPOLOGIAS_COM_ALERTA]);
   const [t5Minimo, setT5Minimo] = useState('');
   const [t8Limite, setT8Limite] = useState('');
   const [t8LimiteReforma, setT8LimiteReforma] = useState('');
   /** Limiares das tipologias de lavagem e da combinação, como texto, pelo nome do parâmetro. */
   const [limiaresLavagem, setLimiaresLavagem] = useState<Record<string, string>>({});
-  /** Sinais fracos ficam recolhidos: sozinhos não indicam nada. */
-  const [sinaisFracosAbertos, setSinaisFracosAbertos] = useState(false);
 
   const limiarT5 = lerLimiar(t5Minimo, { inteiro: true, minimo: 2, maximo: 1000 });
   const limiarT8 = lerLimiar(t8Limite, { minimo: 0, minimoExclusivo: true, maximo: 1000 });
@@ -97,7 +95,7 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
   const execucaoValida = escolhidas.length > 0 && limiarT5.valido && limiarT8.valido && limiarT8Reforma.valido && lidosLavagem.every((l) => l.lido.valido);
 
   function alternarTipologia(t: Tipologia, marcada: boolean) {
-    setEscolhidas((atual) => TIPOLOGIAS.filter((x) => (x === t ? marcada : atual.includes(x))));
+    setEscolhidas((atual) => TIPOLOGIAS_COM_ALERTA.filter((x) => (x === t ? marcada : atual.includes(x))));
   }
 
   /** Só manda o que foi alterado: sem corpo, o back-end roda todas as tipologias com a configuração em vigor. */
@@ -109,7 +107,7 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
     for (const l of lidosLavagem) if (l.lido.valor !== undefined) parametros[l.nome] = l.lido.valor;
     const corpo: ExecucaoAlertas = {};
     if (Object.keys(parametros).length) corpo.parametros = parametros;
-    if (escolhidas.length < TIPOLOGIAS.length) corpo.tipologias = escolhidas;
+    if (escolhidas.length < TIPOLOGIAS_COM_ALERTA.length) corpo.tipologias = escolhidas;
     return Object.keys(corpo).length ? corpo : undefined;
   }
 
@@ -158,14 +156,14 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
   );
   // Totais sem filtro, para conferir com o número do cabeçalho do caso (que conta todos os alertas).
   const totalCombinacoes = todos.filter(ehCombinacao).length;
-  const totalSinaisFracos = todos.filter(ehSinalFraco).length;
   const totalInativos = todos.filter((a) => a.ativo === false).length;
-  // Três blocos: a combinação em destaque, os alertas de cada tipologia e, à parte, os sinais fracos.
+  // Dois blocos: a combinação em destaque e os alertas de cada tipologia. Os sinais fracos (H49)
+  // não geram alerta: só aparecem dentro do cartão da combinação. Um alerta de sinal fraco gravado
+  // por versão anterior e mantido pela decisão fica entre os demais, marcado como não detectado.
   const combinacoes = alertas.filter(ehCombinacao);
-  const sinaisFracos = alertas.filter(ehSinalFraco);
-  const demais = alertas.filter((a) => !ehCombinacao(a) && !ehSinalFraco(a));
+  const demais = alertas.filter((a) => !ehCombinacao(a));
 
-  /** Leva ao cartão de um componente da combinação, mesmo que ele esteja filtrado ou entre os sinais fracos recolhidos. */
+  /** Leva ao cartão de um componente da combinação, mesmo que ele esteja fora dos filtros escolhidos. */
   function irParaAlerta(alertaId: Id) {
     const alvo = todos.find((a) => mesmoId(a.id, alertaId));
     if (!alvo) return;
@@ -173,8 +171,7 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
       setFiltro('todos');
       setSituacao('todas');
     }
-    if (ehSinalFraco(alvo)) setSinaisFracosAbertos(true);
-    // O cartão pode só existir depois da próxima renderização (filtros limpos ou seção aberta).
+    // O cartão pode só existir depois da próxima renderização (filtros limpos).
     window.setTimeout(() => irParaCartaoAlerta(alertaId), 0);
   }
 
@@ -204,7 +201,7 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
               <option value="todos">todas</option>
               {GRUPOS_TIPOLOGIA.map((g) => (
                 <optgroup key={g} label={ROTULOS_GRUPO_TIPOLOGIA[g]}>
-                  {TIPOLOGIAS.filter((t) => grupoDaTipologia(t) === g).map((t) => (
+                  {TIPOLOGIAS_COM_ALERTA.filter((t) => grupoDaTipologia(t) === g).map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
@@ -237,7 +234,7 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
             <div key={g} role="group" aria-label={ROTULOS_GRUPO_TIPOLOGIA[g]} className="caixas-tipologias">
               <strong className="caixas-tipologias-rotulo">{ROTULOS_GRUPO_TIPOLOGIA[g]}:</strong>
               <div className="caixas-tipologias-opcoes">
-                {TIPOLOGIAS.filter((t) => grupoDaTipologia(t) === g).map((t) => (
+                {TIPOLOGIAS_COM_ALERTA.filter((t) => grupoDaTipologia(t) === g).map((t) => (
                   <Caixa key={t} marcado={escolhidas.includes(t)} aoMudar={(marcada) => alternarTipologia(t, marcada)}>
                     {t}
                   </Caixa>
@@ -247,7 +244,8 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
           ))}
           <p className="campo-dica">
             As tipologias desmarcadas não são reavaliadas nesta execução. A combinação (COMB) roda por último, sobre os alertas
-            que existirem. O que cada uma faz está na aba Tipologias.
+            que existirem. Os sinais fracos (L2, L14 e L15) não geram alerta próprio: são avaliados junto com a combinação
+            (COMB) e só aparecem dentro dela. O que cada uma faz está na aba Tipologias.
           </p>
         </fieldset>
         <fieldset>
@@ -309,9 +307,8 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
       )}
       {todos.length > 0 && (
         <p data-testid="resumo-total">
-          <strong>{contar(todos.length, 'alerta')} no caso</strong> (o mesmo número do cabeçalho): {totalCombinacoes} de combinação,{' '}
-          {todos.length - totalCombinacoes - totalSinaisFracos} por tipologia e {contar(totalSinaisFracos, 'sinal fraco', 'sinais fracos')}
-          {totalSinaisFracos > 0 && <> ({totalSinaisFracos === 1 ? 'recolhido' : 'recolhidos'} no fim da lista)</>}.
+          <strong>{contar(todos.length, 'alerta')} no caso</strong> (o mesmo número do cabeçalho): {totalCombinacoes} de combinação e{' '}
+          {todos.length - totalCombinacoes} por tipologia.
           {totalInativos > 0 && <> Desse total, {totalInativos} com decisão não {totalInativos === 1 ? 'foi detectado' : 'foram detectados'} na última execução.</>}
           {alertas.length < todos.length && <> Com os filtros escolhidos: {alertas.length}.</>}
         </p>
@@ -338,26 +335,6 @@ export function AbaAlertas({ casoId, aoAbrirEntidade, aoExecutar, avisosTipologi
         <section className="grupo-alertas" aria-labelledby="alertas-tipologias-titulo" data-testid="grupo-alertas">
           <h3 id="alertas-tipologias-titulo">Alertas por tipologia ({demais.length})</h3>
           {demais.map(cartao)}
-        </section>
-      )}
-      {sinaisFracos.length > 0 && (
-        <section className="grupo-alertas sinais-fracos" aria-labelledby="alertas-sinais-fracos-titulo" data-testid="grupo-sinais-fracos">
-          <h3 id="alertas-sinais-fracos-titulo">Sinais fracos ({sinaisFracos.length})</h3>
-          <p>{TEXTO_SINAL_FRACO} Por isso ficam à parte e recolhidos.</p>
-          <div className="linha">
-            <button
-              type="button"
-              className="br-button secondary small"
-              aria-expanded={sinaisFracosAbertos}
-              aria-controls="lista-sinais-fracos"
-              onClick={() => setSinaisFracosAbertos((aberto) => !aberto)}
-            >
-              {sinaisFracosAbertos ? 'Recolher sinais fracos' : 'Mostrar sinais fracos'}
-            </button>
-          </div>
-          <div id="lista-sinais-fracos" className="grupo-alertas" hidden={!sinaisFracosAbertos}>
-            {sinaisFracosAbertos && sinaisFracos.map(cartao)}
-          </div>
         </section>
       )}
     </div>

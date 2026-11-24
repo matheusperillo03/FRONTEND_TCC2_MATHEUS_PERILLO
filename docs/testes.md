@@ -53,7 +53,7 @@ Do horizonte 3:
 ### Tipologias de lavagem e combinação
 
 - `src/componentes/CartaoAlerta.test.tsx`: alerta L explicado como os T; aviso "pista, não conclusão" uma vez só; selo e texto do sinal fraco; cartão COMB com componentes ("conta" e "não conta"), soma e tipologias distintas contra os mínimos, aviso de que não é escore de culpa, navegação até o cartão do componente e CPF descaracterizado.
-- `src/telas/abas/AbaAlertas.test.tsx`: combinação em destaque; sinais fracos à parte e recolhidos; componente que abre os sinais fracos e limpa o filtro; filtro e seleção com os códigos novos; limiares novos e faixa.
+- `src/telas/abas/AbaAlertas.test.tsx`: combinação em destaque; H49: nenhuma seção nem cartão de sinal fraco, só a linha dentro da combinação, com motivo e sem botão; componente com alerta que limpa o filtro; filtro e seleção com os códigos novos; limiares novos e faixa.
 - `src/telas/abas/AbaTipologias.test.tsx`: três grupos, sinal fraco, peso, tabela de `l6_limites` e de `comb_pesos`, resposta antiga sem os campos novos.
 - `src/telas/abas/AbaColeta.test.tsx`: CEPIM, convênios e CEAF (só nomes; CPF bloqueia). `src/grafo/mapear.test.ts`: convênio e as duas arestas.
 - `src/api/clienteHttp.test.ts` e `src/api/clienteMock.test.ts`: corpo com os códigos e limiares novos; coleta dos recursos novos; catálogo com grupo, sinal fraco e peso; combinação coerente com os componentes; descartado sai da combinação; faixas (422).

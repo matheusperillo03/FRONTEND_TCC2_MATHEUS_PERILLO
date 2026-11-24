@@ -55,8 +55,8 @@ describe('ClienteMock — mesmas regras do back-end', () => {
     const c = criar();
     const alertas = await c.executarAlertas('caso-1');
     // Severidade primeiro; dentro dela, o código como texto (COMB e L antes de T; T10 antes de T2), como no back-end.
-    expect(alertas.map((a) => a.tipologia)).toEqual(['COMB', 'COMB', 'T4', 'T6', 'T7', 'L6', 'T1', 'T3', 'T5', 'T8', 'T9', 'T9', 'L14', 'T10', 'T2']);
-    expect(alertas.map((a) => a.severidade)).toEqual([...Array(5).fill('alta'), ...Array(7).fill('media'), ...Array(3).fill('baixa')]);
+    expect(alertas.map((a) => a.tipologia)).toEqual(['COMB', 'COMB', 'T4', 'T6', 'T7', 'L6', 'T1', 'T3', 'T5', 'T8', 'T9', 'T9', 'T10', 'T2']);
+    expect(alertas.map((a) => a.severidade)).toEqual([...Array(5).fill('alta'), ...Array(7).fill('media'), ...Array(2).fill('baixa')]);
     expect(alertas.every((a) => a.politica_erro?.startsWith('Prefere evitar falso') && a.situacao === 'pendente')).toBe(true);
     for (const a of alertas) for (const ev of a.evidencias) expect(ev.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -191,7 +191,7 @@ describe('ClienteMock — horizonte 2 do backlog', () => {
     const catalogo = await c.listarTipologias();
     expect(catalogo.map((t) => t.codigo)).toEqual([
       'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10',
-      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16',
+      'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16',
       'COMB',
     ]);
     const t5 = catalogo.find((t) => t.codigo === 'T5')!;
@@ -235,8 +235,8 @@ describe('ClienteMock — horizonte 2 do backlog', () => {
     const tipos = new Set((await c.buscarEntidades(caso.id, '')).map((e) => e.tipo));
     expect(tipos).toEqual(new Set(['empresa', 'pessoa', 'orgao', 'contrato', 'sancao', 'candidato', 'edital']));
     const alertas = await c.executarAlertas(caso.id);
-    // T1 a T10, mais L6, L14 e a combinação.
-    expect(new Set(alertas.map((a) => a.tipologia)).size).toBe(13);
+    // T1 a T10, mais L6 e a combinação (H49: o sinal fraco L14 não é alerta).
+    expect(new Set(alertas.map((a) => a.tipologia)).size).toBe(12);
   });
 
   it('fonte não configurada: responde sem erro, sem capturas, com o motivo, e não impede as outras fontes', async () => {
@@ -342,10 +342,10 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
     expect(new Set(catalogo.filter((t) => t.codigo.startsWith('T')).map((t) => t.grupo))).toEqual(new Set(['contratacao']));
     expect(new Set(catalogo.filter((t) => t.codigo.startsWith('L')).map((t) => t.grupo))).toEqual(new Set(['lavagem']));
     expect(catalogo.find((t) => t.codigo === 'COMB')).toMatchObject({ grupo: 'combinacao', severidade: 'alta', sinal_fraco: false, peso: 0 });
-    expect(catalogo.filter((t) => t.sinal_fraco).map((t) => [t.codigo, t.peso])).toEqual([['L14', 0.5], ['L15', 0.5]]);
+    expect(catalogo.filter((t) => t.sinal_fraco).map((t) => [t.codigo, t.peso])).toEqual([['L2', 0.5], ['L14', 0.5], ['L15', 0.5]]);
     expect(catalogo.find((t) => t.codigo === 'L8')).toMatchObject({ severidade: 'alta', peso: 0 });
     expect(Object.fromEntries(catalogo.filter((t) => t.codigo.startsWith('L')).map((t) => [t.codigo, t.severidade]))).toEqual({
-      L1: 'baixa', L3: 'media', L4: 'media', L5: 'baixa', L6: 'media', L7: 'media', L8: 'alta', L10: 'media', L14: 'baixa', L15: 'baixa', L16: 'media',
+      L1: 'baixa', L2: 'baixa', L3: 'media', L4: 'media', L5: 'baixa', L6: 'media', L7: 'media', L8: 'alta', L10: 'media', L14: 'baixa', L15: 'baixa', L16: 'media',
     });
     const l6 = catalogo.find((t) => t.codigo === 'L6')!;
     const limites = l6.parametros.find((p) => p.nome === 'l6_limites')!;
@@ -361,23 +361,27 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
     expect(l6.parametros.map((p) => p.nome)).toEqual(['l6_limites']);
     const comb = catalogo.find((t) => t.codigo === 'COMB')!;
     expect(comb.parametros.map((p) => [p.nome, p.por_execucao])).toEqual([['comb_minimo_tipologias', true], ['comb_peso_minimo', true], ['comb_pesos', false]]);
-    expect(comb.parametros[2].valor).toMatchObject({ T1: 1, L8: 0, L14: 0.5, COMB: 0 });
+    expect(comb.parametros[2].valor).toMatchObject({ T1: 1, L2: 0.5, L8: 0, L14: 0.5, COMB: 0 });
   });
 
-  it('RF12: há um alerta L normal e um sinal fraco, explicados como os T (motivo, evidências com hash e política de erro)', async () => {
+  it('RF12 e H49: há um alerta L normal, explicado como os T; o sinal fraco não é alerta e só existe dentro da combinação', async () => {
     const alertas = await criar().executarAlertas('caso-1');
     const l6 = alertas.find((a) => a.tipologia === 'L6')!;
     expect(l6).toMatchObject({ grupo: 'lavagem', sinal_fraco: false, peso: 1, severidade: 'media', situacao: 'pendente' });
-    const l14 = alertas.find((a) => a.tipologia === 'L14')!;
-    expect(l14).toMatchObject({ grupo: 'lavagem', sinal_fraco: true, peso: 0.5, severidade: 'baixa' });
-    for (const a of [l6, l14]) {
-      expect(a.motivo.length).toBeGreaterThan(50);
-      expect(a.politica_erro).toMatch(/^Prefere evitar falso/);
-      expect(a.evidencias.length).toBeGreaterThan(0);
-      for (const ev of a.evidencias) expect(ev.sha256).toMatch(/^[0-9a-f]{64}$/);
-    }
-    // A idade é dado pessoal: o alerta só fala em faixa etária.
-    expect(JSON.stringify(l14)).not.toMatch(/data_nascimento|\bidade\b\s*:/);
+    expect(l6.motivo.length).toBeGreaterThan(50);
+    expect(l6.politica_erro).toMatch(/^Prefere evitar falso/);
+    for (const ev of l6.evidencias) expect(ev.sha256).toMatch(/^[0-9a-f]{64}$/);
+    // Nenhuma execução devolve alerta de sinal fraco, nem quando ele é pedido pelo código.
+    expect(alertas.some((a) => a.sinal_fraco === true || ['L2', 'L14', 'L15'].includes(a.tipologia))).toBe(false);
+    expect(await criar().executarAlertas('caso-1', { tipologias: ['L2', 'L14', 'L15'] })).toEqual([]);
+    // O sinal vem como componente sem alerta, com o motivo e a evidência com hash dentro da combinação.
+    const alfa = alertas.find((a) => a.id === 'alr-comb-emp-1')!;
+    const sinal = (alfa.parametros as ParametrosCombinacao).componentes!.find((c) => c.tipologia === 'L14')!;
+    expect(sinal).toMatchObject({ alerta_id: null, situacao: 'sinal', sinal_fraco: true, peso: 0.5, conta: true });
+    expect(sinal.motivo).toMatch(/^O único sócio-administrador/);
+    expect(alfa.evidencias.some((ev) => /Faixa etária do sócio-administrador/.test(ev.descricao) && /^[0-9a-f]{64}$/.test(ev.sha256))).toBe(true);
+    // A idade é dado pessoal: o sinal só fala em faixa etária.
+    expect(JSON.stringify(sinal)).not.toMatch(/data_nascimento|\bidade\b\s*:/);
     expect(alertas.filter((a) => a.tipologia.startsWith('T')).every((a) => a.grupo === 'contratacao' && a.sinal_fraco === false && a.peso === 1)).toBe(true);
   });
 
@@ -388,8 +392,12 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
     for (const comb of combinacoes) {
       const p = comb.parametros as ParametrosCombinacao;
       const componentes = p.componentes!;
-      // Cada componente aponta para um alerta que existe, da mesma entidade, com o mesmo título e peso.
+      // Cada componente que não é sinal fraco aponta para um alerta que existe, da mesma entidade, com o mesmo título e peso.
       for (const c of componentes) {
+        if (c.sinal_fraco) {
+          expect(c).toMatchObject({ alerta_id: null, situacao: 'sinal' });
+          continue;
+        }
         const alvo = alertas.find((a) => a.id === c.alerta_id)!;
         expect(alvo).toMatchObject({ tipologia: c.tipologia, titulo: c.titulo, peso: c.peso, sinal_fraco: c.sinal_fraco });
         expect(alvo.entidades[0]).toBe(p.entidade_id);
@@ -431,13 +439,15 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
     expect((await c.executarAlertas('caso-1', { parametros: { comb_peso_minimo: 5 } })).some((a) => a.tipologia === 'COMB')).toBe(false);
 
     // Valor mínimo da L14 acima do contratado: o sinal fraco some e a soma da ALFA cai para 4.
-    const semL14 = await c.executarAlertas('caso-1', { parametros: { l14_valor_minimo: 5_000_000 } });
-    expect(semL14.some((a) => a.tipologia === 'L14')).toBe(false);
-    expect(semL14.find((a) => a.id === 'alr-comb-emp-1')!.parametros).toMatchObject({ soma_pesos: 4, tipologias_distintas: 4 });
+    const semSinal = await c.executarAlertas('caso-1', { parametros: { l14_valor_minimo: 5_000_000 } });
+    const semL14 = semSinal.find((a) => a.id === 'alr-comb-emp-1')!.parametros as ParametrosCombinacao;
+    expect(semL14).toMatchObject({ soma_pesos: 4, tipologias_distintas: 4 });
+    expect(semL14.componentes!.some((x) => x.tipologia === 'L14')).toBe(false);
 
+    // Sem COMB na seleção, os sinais fracos não são reavaliados e a combinação anterior fica como estava.
     const soL = await c.executarAlertas('caso-1', { tipologias: ['L6', 'L14'] });
     expect(soL.find((a) => a.id === 'alr-comb-emp-1')!.parametros).toMatchObject({ soma_pesos: 4 });
-    expect(soL.some((a) => a.tipologia === 'L14')).toBe(true);
+    expect(soL.some((a) => a.tipologia === 'L14')).toBe(false);
   });
 
   it('valida as faixas dos limiares novos (422), como o contrato', async () => {
@@ -445,6 +455,7 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
     const invalidos: ParametrosTipologias[] = [
       { l1_minimo_estabelecimentos: 1 },
       { l1_janela_abertura_dias: 0 },
+      { l2_minimo_empresas: 1 },
       { l3_janela_meses: 1.5 },
       { l4_minimo_niveis: 1 },
       { l7_dias_apos_abertura: -1 },
@@ -455,7 +466,7 @@ describe('RF04: ClienteMock com as tipologias de lavagem (dados sintéticos)', (
       { comb_peso_minimo: 0 },
     ];
     for (const parametros of invalidos) await expect(c.executarAlertas('caso-1', { parametros })).rejects.toMatchObject({ status: 422 });
-    await expect(c.executarAlertas('caso-1', { tipologias: ['L2' as never] })).rejects.toMatchObject({ status: 422 });
+    await expect(c.executarAlertas('caso-1', { tipologias: ['L9' as never] })).rejects.toMatchObject({ status: 422 });
     await expect(c.executarAlertas('caso-1', { parametros: { l7_dias_apos_abertura: 0, l14_valor_minimo: 0, l16_dias_minimos: 0, comb_peso_minimo: 0.5 } })).resolves.toBeInstanceOf(Array);
   });
 
