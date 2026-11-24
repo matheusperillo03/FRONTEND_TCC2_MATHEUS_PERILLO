@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ErroApi, type ApiCliente, type ExtracaoIa, type IaEstado, type PapelCaso, type ProgressoExtracaoIa, type SugestaoIa, type TextoCaptura } from '../../api';
@@ -540,12 +540,56 @@ describe('AbaSugestoesIa — andamento da extração em segundo plano', () => {
   it('enquanto o cancelamento não é atendido, o botão mostra que o pedido foi feito', async () => {
     const meio = emAndamento('capp');
     const pedido = { ...meio, cancelamento_pedido: true };
-    const { cliente, progressoExtracaoIa } = clienteComRoteiro(meio, [meio], { cancelarExtracaoIa: vi.fn(async () => pedido) });
+    // Como no servidor: depois do pedido de cancelamento, toda consulta do andamento já o informa.
+    // (Trocar a resposta do andamento só depois do clique deixava uma consulta de 5 ms responder
+    // com o estado antigo no intervalo, e o teste falhava de vez em quando.)
+    let cancelado = false;
+    const { cliente } = clienteComRoteiro(meio, [meio], {
+      progressoExtracaoIa: vi.fn(async () => (cancelado ? pedido : meio)),
+      cancelarExtracaoIa: vi.fn(async () => {
+        cancelado = true;
+        return pedido;
+      }),
+    });
     const { usuario, painel } = await iniciar(cliente);
     await usuario.click(within(painel).getByRole('button', { name: 'Cancelar extração' }));
-    progressoExtracaoIa.mockImplementation(async () => pedido);
     expect(await within(painel).findByRole('button', { name: 'Cancelamento pedido' })).toBeDisabled();
     expect(within(painel).getByText(/Cancelamento pedido: o modelo para assim que o servidor receber o pedido/)).toBeInTheDocument();
+  });
+
+  it('uma consulta do andamento que estava a caminho não desfaz o estado mais novo, vindo do cancelamento', async () => {
+    const meio = emAndamento('capp');
+    const pedido = { ...meio, cancelamento_pedido: true };
+    let cancelado = false;
+    let soltar: (p: ProgressoExtracaoIa) => void = () => {};
+    // Antes do cancelamento, a consulta do andamento fica sem resposta (rede lenta).
+    const progressoExtracaoIa = vi.fn((): Promise<ProgressoExtracaoIa> => {
+      if (cancelado) return Promise.resolve(pedido);
+      return new Promise((resolver) => {
+        soltar = resolver;
+      });
+    });
+    const { cliente } = clienteComRoteiro(meio, [meio], {
+      progressoExtracaoIa,
+      cancelarExtracaoIa: vi.fn(async () => {
+        cancelado = true;
+        return pedido;
+      }),
+    });
+    const { usuario, painel } = await iniciar(cliente);
+    await waitFor(() => expect(progressoExtracaoIa).toHaveBeenCalledTimes(1));
+    await usuario.click(within(painel).getByRole('button', { name: 'Cancelar extração' }));
+    expect(await within(painel).findByRole('button', { name: 'Cancelamento pedido' })).toBeDisabled();
+    // A resposta atrasada chega agora, com o estado de antes do cancelamento: é descartada.
+    await act(async () => {
+      soltar(meio);
+    });
+    expect(within(painel).getByRole('button', { name: 'Cancelamento pedido' })).toBeDisabled();
+    expect(within(painel).queryByRole('button', { name: 'Cancelar extração' })).not.toBeInTheDocument();
+    // E o acompanhamento continua (a consulta descartada não parou o laço).
+    const antes = progressoExtracaoIa.mock.calls.length;
+    await waitFor(() => expect(progressoExtracaoIa.mock.calls.length).toBeGreaterThan(antes + 1));
+    expect(within(painel).getByRole('button', { name: 'Cancelamento pedido' })).toBeDisabled();
   });
 
   it('concluída com falhas: diz quais blocos falharam e por quê, mantém as sugestões e oferece retomar', async () => {

@@ -19,7 +19,7 @@ describe('AbaTipologias — catálogo e configuração em vigor (GET /tipologias
     const cartoes = await screen.findAllByTestId('tipologia');
     expect(cartoes.map((c) => within(c).getByText(/^(T\d+|L\d+|COMB)$/, { selector: '.etiqueta-tipologia' }).textContent)).toEqual([
       'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10',
-      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16',
+      'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16',
       'COMB',
     ]);
     const t8 = cartoes[7];
@@ -95,7 +95,7 @@ describe('AbaTipologias — catálogo e configuração em vigor (GET /tipologias
 
   it('carrega sem justificativa (não é dado de caso) e mostra o erro do back-end', async () => {
     renderizar(clienteFalso({}, ''));
-    expect(await screen.findAllByTestId('tipologia')).toHaveLength(24);
+    expect(await screen.findAllByTestId('tipologia')).toHaveLength(25);
 
     const listarTipologias = vi.fn(async () => {
       throw new ErroApi(401, '/tipologias', 'Token inválido');
@@ -111,21 +111,26 @@ describe('RF04: tipologias de lavagem no catálogo (grupos, sinal fraco e peso n
   it('separa o catálogo em três grupos: contratações, lavagem e ocultação, e combinação', async () => {
     renderizar();
     const grupos = await screen.findAllByTestId('grupo-tipologias');
-    expect(grupos.map((g) => g.querySelector(':scope > h3')?.textContent)).toEqual(['Contratações (10)', 'Lavagem e ocultação (13)', 'Combinação (1)']);
+    expect(grupos.map((g) => g.querySelector(':scope > h3')?.textContent)).toEqual(['Contratações (10)', 'Lavagem e ocultação (14)', 'Combinação (1)']);
     expect(within(grupos[1]).getAllByTestId('tipologia').map((c) => c.querySelector('.etiqueta-tipologia')?.textContent)).toEqual([
-      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16',
+      'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16',
     ]);
     expect(grupos[1]).toHaveTextContent('Nenhum deles prova lavagem de dinheiro.');
     expect(within(grupos[2]).getByRole('heading', { name: 'Combinação de alertas na mesma entidade' })).toBeInTheDocument();
     expect(grupos[2]).toHaveTextContent('não é escore de culpa');
   });
 
-  it('RF14: marca os sinais fracos (L14 e L15) com o texto do contrato e mostra o peso de cada tipologia', async () => {
+  it('RF14 e H49: marca os sinais fracos (L2, L14 e L15) com o texto do contrato e mostra o peso de cada tipologia', async () => {
     renderizar();
     const cartoes = await screen.findAllByTestId('tipologia');
-    expect(cartoes.filter((c) => within(c).queryByTestId('selo-sinal-fraco')).map((c) => c.querySelector('.etiqueta-tipologia')?.textContent)).toEqual(['L14', 'L15']);
+    expect(cartoes.filter((c) => within(c).queryByTestId('selo-sinal-fraco')).map((c) => c.querySelector('.etiqueta-tipologia')?.textContent)).toEqual(['L2', 'L14', 'L15']);
+    const l2 = porCodigo(cartoes, 'L2');
+    expect(within(l2).getByRole('heading', { name: 'Telefone ou e-mail compartilhado por empresas sem sócio em comum' })).toBeInTheDocument();
+    expect(within(l2).getByTestId('peso-tipologia')).toHaveTextContent(/^0,5$/);
+    expect(l2).toHaveTextContent('mostrado mascarado');
+    expect(l2).toHaveTextContent(/l2_minimo_empresas\s*3/);
     const l14 = porCodigo(cartoes, 'L14');
-    expect(within(l14).getByTestId('texto-sinal-fraco')).toHaveTextContent('Sinal fraco: sozinho não indica nada; só pesa no alerta de combinação.');
+    expect(within(l14).getByTestId('texto-sinal-fraco')).toHaveTextContent('Sinal fraco: sozinho não indica nada; não gera alerta próprio e só pesa no alerta de combinação.');
     expect(within(l14).getByTestId('peso-tipologia')).toHaveTextContent(/^0,5$/);
     expect(within(porCodigo(cartoes, 'L1')).getByTestId('peso-tipologia')).toHaveTextContent(/^1$/);
     expect(within(porCodigo(cartoes, 'T1')).getByTestId('peso-tipologia')).toHaveTextContent(/^1$/);
@@ -170,7 +175,7 @@ describe('RF04: tipologias de lavagem no catálogo (grupos, sinal fraco e peso n
     renderizar();
     const tabela = await screen.findByRole('table', { name: 'Peso de cada tipologia na combinação' });
     const linhas = within(tabela).getAllByTestId('peso-combinacao');
-    expect(linhas).toHaveLength(24);
+    expect(linhas).toHaveLength(25);
     const peso = (codigo: string) => within(linhas.find((l) => within(l).getByRole('rowheader').textContent === codigo)!).getByRole('cell').textContent;
     expect(peso('T1')).toBe('1');
     expect(peso('L14')).toBe('0,5');

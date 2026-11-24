@@ -162,7 +162,7 @@ describe('ClienteMock — ligação de registros de pessoas', () => {
   });
 
   it('H46 e H52: o catálogo simulado traz L9 e L13 no grupo de lavagem, com nome e política, sem parâmetros de tela', async () => {
-    expect(TIPOLOGIAS_LAVAGEM).toEqual(['L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16']);
+    expect(TIPOLOGIAS_LAVAGEM).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16']);
     const catalogo = await criar().listarTipologias();
     const l9 = catalogo.find((t) => t.codigo === 'L9')!;
     const l13 = catalogo.find((t) => t.codigo === 'L13')!;

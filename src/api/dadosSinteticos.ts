@@ -32,7 +32,7 @@ import type {
   Tipologia,
   TipologiaCatalogo,
 } from './tipos';
-import { TIPOLOGIAS, grupoDaTipologia } from './tipos';
+import { SINAIS_FRACOS, TIPOLOGIAS, grupoDaTipologia } from './tipos';
 
 export const CASO_DEMO: Caso = {
   id: 'caso-1',
@@ -1382,12 +1382,19 @@ export const POLITICAS_DEMO: Record<Tipologia, { nome: string; severidade: strin
     politica_erro:
       'Prefere evitar falso negativo: aponta a despesa de campanha contratada com empresa de atividade sem relação com campanha, recém-aberta ou com sinais de fachada. O CNAE informado na prestação de contas pode estar desatualizado, e fornecedor novo ou de outro ramo pode ser legítimo.',
   },
+  L2: {
+    nome: 'Telefone ou e-mail compartilhado por empresas sem sócio em comum',
+    severidade: 'baixa',
+    prefere_evitar: 'falso_positivo',
+    politica_erro:
+      'Prefere evitar falso positivo: é sinal fraco, que não gera alerta próprio e só pesa no alerta de combinação. Só conta o contato igual em empresas de grupos sem sócio em comum. O falso positivo é muito alto: o contador costuma registrar o próprio telefone e e-mail nas empresas que atende. O contato é mostrado mascarado.',
+  },
   L14: {
     nome: 'Sócio em faixa etária atípica em empresa contratada',
     severidade: 'baixa',
     prefere_evitar: 'falso_positivo',
     politica_erro:
-      'Prefere evitar falso positivo: só dispara quando todos os sócios-administradores estão nas faixas atípicas e o valor contratado passa do mínimo. É sinal fraco: herança, sucessão e empresa familiar legítima são comuns.',
+      'Prefere evitar falso positivo: só conta quando todos os sócios-administradores estão nas faixas atípicas e o valor contratado passa do mínimo. É sinal fraco: herança, sucessão e empresa familiar legítima são comuns.',
   },
   L15: {
     nome: 'Número excessivo de atividades econômicas',
@@ -1412,8 +1419,8 @@ export const POLITICAS_DEMO: Record<Tipologia, { nome: string; severidade: strin
   },
 };
 
-/** Sinais fracos: sozinhos não indicam nada; só pesam no alerta de combinação. */
-export const SINAIS_FRACOS_DEMO: ReadonlySet<Tipologia> = new Set<Tipologia>(['L14', 'L15']);
+/** Sinais fracos (H49): sozinhos não indicam nada; não geram alerta e só pesam na combinação. */
+export const SINAIS_FRACOS_DEMO: ReadonlySet<Tipologia> = new Set<Tipologia>(SINAIS_FRACOS);
 
 /** Peso de cada tipologia na combinação (`comb_pesos`). L8 é composição de T1 e T7, já contadas. */
 export const PESOS_COMBINACAO_DEMO: Record<Tipologia, number> = Object.fromEntries(
@@ -1444,8 +1451,8 @@ function politicaDe(tipologia: Tipologia) {
  * Na ordem em que o back-end devolve: severidade (alta, média, baixa), depois o código da
  * tipologia como texto (por isso T10 vem antes de T2, e as L antes das T) e o título.
  *
- * Tipologias de lavagem: a ALFA (emp-1) tem um alerta L normal (L6) e um sinal fraco (L14),
- * além de T1, T2 e T3. O alerta de combinação não fica nesta lista: o simulado o calcula a
+ * Tipologias de lavagem: a ALFA (emp-1) tem um alerta L normal (L6), além de T1, T2 e T3. O
+ * sinal fraco dela (L14) não é alerta e fica em `SINAIS_DEMO`. O alerta de combinação não fica nesta lista: o simulado o calcula a
  * cada execução, a partir dos alertas da mesma entidade (`ClienteMock.executarAlertas`).
  */
 export const ALERTAS: Alerta[] = [
@@ -1725,21 +1732,6 @@ export const ALERTAS: Alerta[] = [
     },
   },
   {
-    id: 'alr-13',
-    tipologia: 'L14',
-    titulo: 'Sócio-administrador de ALFA SOLUÇÕES EM TI LTDA em faixa etária atípica',
-    motivo:
-      'O único sócio-administrador de ALFA SOLUÇÕES EM TI LTDA está na faixa etária 9 (maiores de 80 anos) da tabela ' +
-      'Sócios do CNPJ, e a empresa tem R$ 1.200.000,00 em contratos, acima do mínimo de R$ 100.000,00. Sinal fraco: ' +
-      'sozinho não indica nada (herança, sucessão e empresa familiar são comuns); só pesa no alerta de combinação. ' +
-      'A idade é dado pessoal: só a faixa é mostrada.',
-    severidade: POLITICAS_DEMO.L14.severidade,
-    ...politicaDe('L14'),
-    entidades: ['emp-1', 'pes-1', 'con-1'],
-    evidencias: [ev('Faixa etária do sócio-administrador (tabela Sócios do CNPJ)', 'cap-2'), ev('Valor global do contrato (PNCP)', 'cap-4')],
-    parametros: { faixa_etaria: '9', faixa_etaria_descricao: 'maiores de 80 anos', socios_administradores: 1, valor_contratado: 1200000, l14_valor_minimo: 100000 },
-  },
-  {
     id: 'alr-11',
     tipologia: 'T10',
     titulo: 'Exigência de certidão negativa de quitação no edital edital_restritivo.txt',
@@ -1808,6 +1800,29 @@ export const ALERTAS: Alerta[] = [
   },
 ];
 
+/**
+ * Sinais fracos do caso de demonstração (H49). Têm a forma de um alerta (motivo, evidências e
+ * parâmetros), mas NÃO são alertas: nenhuma execução os devolve. O simulado os avalia junto com a
+ * combinação e os põe dentro dela, como componentes sem alerta próprio.
+ */
+export const SINAIS_DEMO: Alerta[] = [
+  {
+    id: 'alr-13',
+    tipologia: 'L14',
+    titulo: 'Sócio-administrador de ALFA SOLUÇÕES EM TI LTDA em faixa etária atípica',
+    motivo:
+      'O único sócio-administrador de ALFA SOLUÇÕES EM TI LTDA está na faixa etária 9 (maiores de 80 anos) da tabela ' +
+      'Sócios do CNPJ, e a empresa tem R$ 1.200.000,00 em contratos, acima do mínimo de R$ 100.000,00. Sinal fraco: ' +
+      'sozinho não indica nada (herança, sucessão e empresa familiar são comuns); só pesa no alerta de combinação. ' +
+      'A idade é dado pessoal: só a faixa é mostrada.',
+    severidade: POLITICAS_DEMO.L14.severidade,
+    ...politicaDe('L14'),
+    entidades: ['emp-1', 'pes-1', 'con-1'],
+    evidencias: [ev('Faixa etária do sócio-administrador (tabela Sócios do CNPJ)', 'cap-2'), ev('Valor global do contrato (PNCP)', 'cap-4')],
+    parametros: { faixa_etaria: '9', faixa_etaria_descricao: 'maiores de 80 anos', socios_administradores: 1, valor_contratado: 1200000, l14_valor_minimo: 100000 },
+  },
+];
+
 const FONTE_LC_123 = 'Lei Complementar nº 123/2006';
 const FONTE_LC_MEI_2027 = 'Lei Complementar nº 238/2026 (https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp238.htm)';
 
@@ -1854,6 +1869,7 @@ export const PARAMETROS_TIPOLOGIAS_DEMO = {
     },
     primeiro_ano: 2012,
   },
+  l2_minimo_empresas: 3,
   l7_dias_apos_abertura: 30,
   l7_meses_antes_contrato: 12,
   l14_valor_minimo: 100000,
@@ -1877,6 +1893,7 @@ const POR_EXECUCAO = new Set([
   'l1_minimo_estabelecimentos',
   'l1_janela_abertura_dias',
   'l1_minimo_abertas_na_janela',
+  'l2_minimo_empresas',
   'l3_minimo_empresas',
   'l3_minimo_abertas_na_janela',
   'l3_janela_meses',
@@ -1906,6 +1923,7 @@ const DESCRICAO_PARAMETROS: Record<keyof typeof PARAMETROS_TIPOLOGIAS_DEMO, stri
   l1_minimo_estabelecimentos: 'Número mínimo de estabelecimentos ativos no mesmo endereço (com o complemento).',
   l1_janela_abertura_dias: 'Janela, em dias, para contar as empresas abertas quase ao mesmo tempo no endereço.',
   l1_minimo_abertas_na_janela: 'Número mínimo de empresas abertas dentro da janela para aumentar a severidade.',
+  l2_minimo_empresas: 'Número mínimo de empresas, em grupos sem sócio em comum, com o mesmo telefone ou correio eletrônico.',
   l3_minimo_empresas: 'Número mínimo de empresas em que a mesma pessoa provável tem qualificação de administração.',
   l3_minimo_abertas_na_janela: 'Quantas dessas empresas precisam ter sido abertas dentro da janela.',
   l3_janela_meses: 'Janela, em meses, para a abertura das empresas do mesmo administrador.',
@@ -2037,16 +2055,23 @@ const DESCRICOES_TIPOLOGIAS: Record<Tipologia, [string, string, string, string[]
     ['cnpj_arquivo', 'tse_arquivo'],
     [],
   ],
+  L2: [
+    'H49',
+    'Sinal fraco, não gera alerta próprio: só pesa na combinação. O mesmo telefone (DDD e número) ou o mesmo correio eletrônico no cadastro de K ou mais empresas do caso que formam K ou mais grupos sem sócio em comum. O contato é comparado normalizado e mostrado mascarado; o valor completo fica só na captura.',
+    'Carta Circular BCB nº 4.001/2020, III, k (mesmo endereço de e-mail por diferentes pessoas jurídicas); FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E, item 4. Estender ao telefone do cadastro, o agrupamento por sócio e o limiar: decisão do autor.',
+    ['cnpj_arquivo'],
+    ['l2_minimo_empresas'],
+  ],
   L14: [
     '',
-    'Contratada cujos sócios-administradores estão todos em faixa etária atípica, com valor contratado acima de V. Só a faixa etária é usada e mostrada.',
+    'Sinal fraco, não gera alerta próprio: só pesa na combinação. Contratada cujos sócios-administradores estão todos em faixa etária atípica, com valor contratado acima de V. Só a faixa etária é usada e mostrada.',
     'FATF e Egmont Group, Concealment of Beneficial Ownership (2018), Anexo E (interposta pessoa informal). Sinal fraco. Limiar: decisão do autor.',
     ['cnpj_arquivo', 'pncp'],
     ['l14_valor_minimo', 'l14_faixas_atipicas'],
   ],
   L15: [
     '',
-    'Estabelecimento com N ou mais CNAEs, ou contratos da mesma empresa em M ou mais categorias de objeto.',
+    'Sinal fraco, não gera alerta próprio: só pesa na combinação. Estabelecimento com N ou mais CNAEs, ou contratos da mesma empresa em M ou mais categorias de objeto.',
     'Velasco et al. (2021): grande número de classificações de atividade. Sinal fraco. Limiares: decisão do autor.',
     ['cnpj_arquivo', 'pncp'],
     ['l15_minimo_cnaes', 'l15_minimo_categorias'],

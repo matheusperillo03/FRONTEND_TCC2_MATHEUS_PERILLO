@@ -450,16 +450,25 @@ export interface Grafo {
 
 /** T: contratações (possível infração antecedente). */
 export type TipologiaContratacao = 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7' | 'T8' | 'T9' | 'T10';
-/** L: lavagem e ocultação. Não existem L2, L11 e L12; L9 (H46) e L13 (H52) vieram com a ligação de pessoas. */
-export type TipologiaLavagem = 'L1' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8' | 'L9' | 'L10' | 'L13' | 'L14' | 'L15' | 'L16';
+/** L: lavagem e ocultação. Não existem L11 e L12; L2 é sinal fraco (H49); L9 (H46) e L13 (H52) vieram com a ligação de pessoas. */
+export type TipologiaLavagem = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8' | 'L9' | 'L10' | 'L13' | 'L14' | 'L15' | 'L16';
 /** COMB: combinação de alertas na mesma entidade. */
 export type Tipologia = TipologiaContratacao | TipologiaLavagem | 'COMB';
 
 export const TIPOLOGIAS_CONTRATACAO: readonly TipologiaContratacao[] = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10'];
-export const TIPOLOGIAS_LAVAGEM: readonly TipologiaLavagem[] = ['L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16'];
+export const TIPOLOGIAS_LAVAGEM: readonly TipologiaLavagem[] = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L14', 'L15', 'L16'];
 
 /** Na ordem do catálogo e da execução do back-end: T1 a T10, as L e, por fim, a combinação. */
 export const TIPOLOGIAS: readonly Tipologia[] = [...TIPOLOGIAS_CONTRATACAO, ...TIPOLOGIAS_LAVAGEM, 'COMB'];
+
+/**
+ * Sinais fracos (H49): sozinhos não indicam nada. Não geram alerta próprio: o back-end os avalia
+ * junto com a combinação (COMB) e eles só aparecem dentro dela, como componentes sem alerta.
+ */
+export const SINAIS_FRACOS: readonly Tipologia[] = ['L2', 'L14', 'L15'];
+
+/** Tipologias que geram alerta: as que o investigador escolhe para executar e usa no filtro. */
+export const TIPOLOGIAS_COM_ALERTA: readonly Tipologia[] = TIPOLOGIAS.filter((t) => !SINAIS_FRACOS.includes(t));
 
 export type GrupoTipologia = 'contratacao' | 'lavagem' | 'combinacao';
 
@@ -499,6 +508,8 @@ export interface ParametrosTipologias {
   l1_janela_abertura_dias?: number;
   /** Inteiro ≥ 2. */
   l1_minimo_abertas_na_janela?: number;
+  /** Inteiro ≥ 2 (sinal fraco L2). */
+  l2_minimo_empresas?: number;
   /** Inteiro ≥ 2. */
   l3_minimo_empresas?: number;
   /** Inteiro ≥ 1. */
@@ -645,14 +656,17 @@ export interface Alerta {
   ativo?: boolean;
   /** Tipologias de lavagem e combinação: ausentes em respostas antigas. */
   grupo?: GrupoTipologia;
-  /** Verdadeiro: sinal fraco, que só pesa no alerta de combinação. */
+  /** Verdadeiro só em alerta gravado por versão anterior: hoje o sinal fraco não gera alerta (H49). */
   sinal_fraco?: boolean;
   peso?: number;
 }
 
-/** Um alerta que entra (ou não) num alerta de combinação (`parametros.componentes` do COMB). */
+/**
+ * Um alerta que entra (ou não) num alerta de combinação (`parametros.componentes` do COMB), ou um
+ * sinal fraco (H49), que não tem alerta próprio: `alerta_id` nulo, `situacao` "sinal" e o `motivo`.
+ */
 export interface ComponenteCombinacao {
-  alerta_id: Id;
+  alerta_id: Id | null;
   tipologia: string;
   tipologia_nome?: string;
   titulo: string;
@@ -663,6 +677,8 @@ export interface ComponenteCombinacao {
   /** Falso: o alerta aparece na lista, mas não soma (a `observacao` diz por quê). */
   conta: boolean;
   observacao?: string;
+  /** Só no sinal fraco: a explicação que, nos demais, está no cartão do próprio alerta. */
+  motivo?: string;
 }
 
 /** `parametros` de um alerta `COMB`. Não é escore de culpa: é pista para priorizar a análise (RF12). */

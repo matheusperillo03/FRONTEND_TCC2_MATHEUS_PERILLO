@@ -114,6 +114,11 @@ function useAcompanhamento(
   const temporizadores = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const ultimos = useRef(new Map<string, ProgressoExtracaoIa>());
   const falhas = useRef(new Map<string, number>());
+  // Conta, por execução, os estados que chegaram por uma AÇÃO (pedido, cancelamento, retomada).
+  // Uma consulta do andamento que saiu antes da ação e responde depois traz estado mais velho:
+  // é descartada, para a tela não voltar atrás (por exemplo, de "Cancelamento pedido" para
+  // "Cancelar extração") até a consulta seguinte.
+  const geracoes = useRef(new Map<string, number>());
   const vivo = useRef(true);
   const retornos = useRef({ aoAvancar, aoTerminar });
   retornos.current = { aoAvancar, aoTerminar };
@@ -136,10 +141,13 @@ function useAcompanhamento(
         id,
         setTimeout(async () => {
           let progresso: ProgressoExtracaoIa | null = null;
+          const geracao = geracoes.current.get(id) ?? 0;
+          // A ação que mudou a geração já agendou a consulta seguinte: esta só sai de cena.
+          const superada = () => (geracoes.current.get(id) ?? 0) !== geracao;
           try {
             progresso = await cliente.progressoExtracaoIa(casoId, id);
           } catch (e) {
-            if (!vivo.current) return;
+            if (!vivo.current || superada()) return;
             const seguidas = (falhas.current.get(id) ?? 0) + 1;
             falhas.current.set(id, seguidas);
             setErros((x) => ({ ...x, [id]: mensagemDeErro(e) }));
@@ -149,7 +157,7 @@ function useAcompanhamento(
               return;
             }
           }
-          if (!vivo.current) return;
+          if (!vivo.current || superada()) return;
           if (progresso) {
             falhas.current.delete(id);
             setErros((x) => (id in x ? Object.fromEntries(Object.entries(x).filter(([chave]) => chave !== id)) : x));
@@ -170,6 +178,7 @@ function useAcompanhamento(
     (progresso: ProgressoExtracaoIa) => {
       const id = String(progresso.id);
       falhas.current.delete(id);
+      geracoes.current.set(id, (geracoes.current.get(id) ?? 0) + 1);
       setParadas((x) => ({ ...x, [id]: false }));
       receber(progresso);
       if (progresso.ativa) agendar(id);
