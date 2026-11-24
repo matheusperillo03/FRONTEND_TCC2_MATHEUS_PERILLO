@@ -24,7 +24,7 @@ describe('AbaAlertas — severidade (RF14) e decisão do investigador (RF12)', (
     const cartoes = screen.getAllByRole('article');
     // A etiqueta do cartão é a do cabeçalho (a tabela de componentes da combinação também tem etiquetas).
     const etiqueta = (c: HTMLElement) => c.querySelector('header .etiqueta-tipologia')?.textContent;
-    // As duas combinações vêm em destaque; o sinal fraco (L14) fica recolhido, fora da lista.
+    // As duas combinações vêm em destaque; o sinal fraco (L14) não tem cartão: só aparece dentro da combinação (H49).
     expect(cartoes.map(etiqueta)).toEqual(['COMB', 'COMB', 'T4', 'T6', 'T7', 'L6', 'T1', 'T3', 'T5', 'T8', 'T9', 'T9', 'T10', 'T2']);
     expect(cartoes.map((c) => within(c).getByText(/^severidade: /).textContent)).toEqual([
       ...Array(5).fill('severidade: alta'),
@@ -34,19 +34,19 @@ describe('AbaAlertas — severidade (RF14) e decisão do investigador (RF12)', (
     for (const cartao of cartoes) {
       expect(within(cartao).getByText(/^Prefere evitar falso (negativo|positivo):/)).toBeInTheDocument();
     }
-    // O resumo conta todos os alertas, inclusive o sinal fraco recolhido.
-    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('15 pendentes de análise · 0 confirmados · 0 descartados');
+    // O resumo conta só alertas: o sinal fraco não é alerta.
+    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('14 pendentes de análise · 0 confirmados · 0 descartados');
   });
 
   it('diz o total de alertas do caso e quantos estão em cada bloco, para o número conferir com o do cabeçalho', async () => {
     const { usuario } = await renderizarComAlertas();
-    // 14 cartões à vista e 1 sinal fraco recolhido: o total é 15, como no cabeçalho do caso.
+    // 14 cartões à vista: o total é 14, como no cabeçalho do caso (o sinal fraco não é alerta).
     expect(screen.getAllByRole('article')).toHaveLength(14);
     const total = screen.getByTestId('resumo-total');
-    expect(total).toHaveTextContent('15 alertas no caso (o mesmo número do cabeçalho): 2 de combinação, 12 por tipologia e 1 sinal fraco (recolhido no fim da lista).');
+    expect(total).toHaveTextContent('14 alertas no caso (o mesmo número do cabeçalho): 2 de combinação e 12 por tipologia.');
     expect(total).not.toHaveTextContent('Com os filtros escolhidos');
     await usuario.selectOptions(screen.getByLabelText('Tipologia'), 'T9');
-    expect(total).toHaveTextContent('15 alertas no caso');
+    expect(total).toHaveTextContent('14 alertas no caso');
     expect(total).toHaveTextContent('Com os filtros escolhidos: 2.');
   });
 
@@ -58,7 +58,7 @@ describe('AbaAlertas — severidade (RF14) e decisão do investigador (RF12)', (
 
     expect(await within(cartao).findByText('descartado', { selector: '.situacao' })).toBeInTheDocument();
     expect(within(cartao).getByTestId('decisao')).toHaveTextContent('Justificativa: Baixa posterior ao contrato');
-    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('14 pendentes de análise · 0 confirmados · 1 descartado');
+    expect(screen.getByTestId('resumo-situacao')).toHaveTextContent('13 pendentes de análise · 0 confirmados · 1 descartado');
 
     const eventos = (await cliente.listarAuditoria('caso-1')).filter((e) => e.acao === 'alerta.decidir');
     expect(eventos).toHaveLength(1);
@@ -127,8 +127,8 @@ describe('AbaAlertas — execução com tipologias e limiares do horizonte 2', (
   it('sem alterar nada, executa todas as tipologias com a configuração em vigor (sem corpo)', async () => {
     const { usuario, executarAlertas } = await renderizar();
     const formulario = screen.getByRole('form', { name: 'Execução das tipologias' });
-    // T1 a T10, as onze L e a combinação.
-    expect(within(formulario).getAllByRole('checkbox')).toHaveLength(22);
+    // T1 a T10, as nove L que geram alerta e a combinação (H49: L2, L14 e L15 não têm caixa).
+    expect(within(formulario).getAllByRole('checkbox')).toHaveLength(20);
     for (const caixa of within(formulario).getAllByRole('checkbox')) expect(caixa).toBeChecked();
     await usuario.click(screen.getByRole('button', { name: 'Executar tipologias' }));
     expect(executarAlertas).toHaveBeenCalledWith('caso-1');
@@ -136,7 +136,7 @@ describe('AbaAlertas — execução com tipologias e limiares do horizonte 2', (
 
   it('envia só as tipologias escolhidas e os três limiares novos', async () => {
     const { usuario, executarAlertas } = await renderizar();
-    const desmarcar = ['T1', 'T2', 'T3', 'T4', 'T6', 'T7', 'T9', 'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16', 'COMB'];
+    const desmarcar = ['T1', 'T2', 'T3', 'T4', 'T6', 'T7', 'T9', 'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L16', 'COMB'];
     for (const t of desmarcar) await usuario.click(screen.getByRole('checkbox', { name: t }));
     await usuario.type(screen.getByLabelText('T5 — mínimo de contratações somadas'), '3');
     await usuario.type(screen.getByLabelText('T8 — limite de acréscimo (%)'), '20');
@@ -203,42 +203,37 @@ describe('RF04 e RF14: tipologias de lavagem, sinais fracos e combinação na ab
     expect(within(combinacoes[1]).getByTestId('combinacao-soma')).toHaveTextContent('2 (mínimo para disparar: 2)');
   });
 
-  it('RF12: os sinais fracos ficam numa seção à parte, recolhida, com o texto de que sozinhos não indicam nada', async () => {
-    const { usuario } = await renderizarComAlertas();
-    const secao = screen.getByTestId('grupo-sinais-fracos');
-    expect(within(secao).getByRole('heading', { name: 'Sinais fracos (1)' })).toBeInTheDocument();
-    expect(secao).toHaveTextContent('Sinal fraco: sozinho não indica nada; só pesa no alerta de combinação.');
-    const botao = within(secao).getByRole('button', { name: 'Mostrar sinais fracos' });
-    expect(botao).toHaveAttribute('aria-expanded', 'false');
-    expect(within(secao).queryByRole('article')).not.toBeInTheDocument();
-    // Nenhum sinal fraco aparece entre os alertas por tipologia.
-    expect(within(screen.getByTestId('grupo-alertas')).queryByTestId('selo-sinal-fraco')).not.toBeInTheDocument();
-
-    await usuario.click(botao);
-    expect(within(secao).getByRole('button', { name: 'Recolher sinais fracos' })).toHaveAttribute('aria-expanded', 'true');
-    const cartao = within(secao).getByRole('article');
-    expect(cartao.querySelector('header .etiqueta-tipologia')).toHaveTextContent('L14');
-    expect(within(cartao).getByTestId('selo-sinal-fraco')).toBeInTheDocument();
-    expect(within(cartao).getByLabelText('Justificativa da decisão (obrigatória)')).toBeInTheDocument();
+  it('H49: os sinais fracos não geram alerta: não há seção nem cartão de L2, L14 ou L15, só a linha dentro da combinação', async () => {
+    await renderizarComAlertas();
+    expect(screen.queryByTestId('grupo-sinais-fracos')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sinais fracos/ })).not.toBeInTheDocument();
+    const cabecalhos = screen.getAllByRole('article').map((c) => c.querySelector('header .etiqueta-tipologia')?.textContent);
+    expect(cabecalhos.filter((t) => t === 'L2' || t === 'L14' || t === 'L15')).toEqual([]);
+    expect(screen.queryByTestId('selo-sinal-fraco')).not.toBeInTheDocument();
+    // A explicação de por que não aparecem fica no formulário de execução.
+    expect(screen.getByRole('form', { name: 'Execução das tipologias' })).toHaveTextContent(
+      'Os sinais fracos (L2, L14 e L15) não geram alerta próprio: são avaliados junto com a combinação (COMB) e só aparecem dentro dela.',
+    );
+    // Dentro da combinação da ALFA, o sinal vem com o selo, o peso e o motivo, sem botão para outro cartão.
+    const alfa = within(screen.getByTestId('grupo-combinacao')).getAllByRole('article')[0];
+    const linha = within(alfa).getAllByTestId('componente-combinacao').find((l) => l.querySelector('.etiqueta-tipologia')?.textContent === 'L14')!;
+    expect(linha).toHaveTextContent('sinal fraco');
+    expect(linha).toHaveTextContent('0,5');
+    expect(within(linha).getByTestId('motivo-sinal-fraco')).toHaveTextContent('faixa etária 9 (maiores de 80 anos)');
+    expect(linha).toHaveTextContent('sem alerta próprio');
+    expect(within(linha).queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('RF14: o componente da combinação leva ao cartão do alerta, abrindo os sinais fracos e limpando o filtro', async () => {
+  it('RF14: o componente da combinação leva ao cartão do alerta, limpando o filtro; o sinal fraco não tem cartão para abrir', async () => {
     const { usuario } = await renderizarComAlertas();
     await usuario.selectOptions(screen.getByLabelText('Tipologia'), 'COMB');
     expect(screen.getAllByRole('article')).toHaveLength(2);
     const alfa = screen.getAllByRole('article')[0];
-
-    await usuario.click(within(alfa).getByRole('button', { name: /^Sócio-administrador de ALFA SOLUÇÕES EM TI LTDA em faixa etária atípica$/ }));
-    const alvo = await waitFor(() => {
-      const cartao = document.getElementById('cartao-alerta-alr-13');
-      expect(cartao).toHaveFocus();
-      return cartao!;
-    });
-    expect(screen.getByLabelText('Tipologia')).toHaveValue('todos');
-    expect(screen.getByTestId('grupo-sinais-fracos')).toContainElement(alvo);
+    expect(within(alfa).queryByRole('button', { name: /faixa etária atípica/ })).not.toBeInTheDocument();
 
     await usuario.click(within(alfa).getByRole('button', { name: 'Capital social incompatível com o valor contratado' }));
     await waitFor(() => expect(document.getElementById('cartao-alerta-alr-3')).toHaveFocus());
+    expect(screen.getByLabelText('Tipologia')).toHaveValue('todos');
   });
 
   it('RF04: o filtro e a seleção para executar incluem os códigos L e a combinação, por grupo', async () => {
@@ -247,12 +242,12 @@ describe('RF04 e RF14: tipologias de lavagem, sinais fracos e combinação na ab
     expect(within(filtro).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'todas',
       'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10',
-      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L14', 'L15', 'L16',
+      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L16',
       'COMB',
     ]);
     expect(within(filtro).getAllByRole('group').map((g) => g.getAttribute('label'))).toEqual(['Contratações', 'Lavagem e ocultação', 'Combinação']);
     const formulario = screen.getByRole('form', { name: 'Execução das tipologias' });
-    expect(within(within(formulario).getByRole('group', { name: 'Lavagem e ocultação' })).getAllByRole('checkbox')).toHaveLength(11);
+    expect(within(within(formulario).getByRole('group', { name: 'Lavagem e ocultação' })).getAllByRole('checkbox')).toHaveLength(9);
     expect(within(within(formulario).getByRole('group', { name: 'Combinação' })).getByRole('checkbox', { name: 'COMB' })).toBeChecked();
 
     await usuario.selectOptions(filtro, 'L6');
@@ -282,9 +277,14 @@ describe('RF04 e RF14: tipologias de lavagem, sinais fracos e combinação na ab
     await usuario.type(screen.getByLabelText('L1 — mínimo de estabelecimentos no endereço'), '10');
     await usuario.type(screen.getByLabelText('L7 — dias após a abertura que ainda contam como fundador'), '0');
     await usuario.type(screen.getByLabelText('L14 — valor contratado mínimo (R$)'), '250000.5');
+    // H49: o limiar da L2 (sinal fraco) também vai só para a execução; abaixo de 2 é recusado.
+    await usuario.type(screen.getByLabelText('L2 — mínimo de empresas com o mesmo telefone ou e-mail'), '1');
+    expect(botao).toBeDisabled();
+    await usuario.clear(screen.getByLabelText('L2 — mínimo de empresas com o mesmo telefone ou e-mail'));
+    await usuario.type(screen.getByLabelText('L2 — mínimo de empresas com o mesmo telefone ou e-mail'), '4');
     await usuario.click(botao);
     expect(executarAlertas).toHaveBeenCalledWith('caso-1', {
-      parametros: { comb_minimo_tipologias: 3, comb_peso_minimo: 2.5, l1_minimo_estabelecimentos: 10, l7_dias_apos_abertura: 0, l14_valor_minimo: 250000.5 },
+      parametros: { comb_minimo_tipologias: 3, comb_peso_minimo: 2.5, l1_minimo_estabelecimentos: 10, l2_minimo_empresas: 4, l7_dias_apos_abertura: 0, l14_valor_minimo: 250000.5 },
     });
   });
 
