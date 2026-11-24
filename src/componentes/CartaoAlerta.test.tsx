@@ -6,7 +6,7 @@ import { ALERTAS, SINAIS_DEMO } from '../api/dadosSinteticos';
 import { SessaoProvider } from '../sessao/SessaoContext';
 import { clienteFalso } from '../test/clienteFalso';
 import { cpfSinteticoValido, mascarado } from '../test/cpfSintetico';
-import { CartaoAlerta, idCartaoAlerta } from './CartaoAlerta';
+import { CartaoAlerta, idCartaoAlerta, nomeTipologia } from './CartaoAlerta';
 
 const ALERTA_T1 = ALERTAS.find((a) => a.tipologia === 'T1')!;
 
@@ -477,5 +477,13 @@ describe('RF14: cartão do alerta de combinação (COMB)', () => {
     const { container } = renderizar(comCpf);
     expect(container.textContent).not.toContain(cpf);
     expect(screen.getByRole('button', { name: `Sócio de CPF ${mascarado(cpf)} em 4 empresas` })).toBeInTheDocument();
+  });
+});
+
+describe('nomes das tipologias da ligação de pessoas', () => {
+  it('H46 e H52: L9 e L13 têm nome local quando o back-end não manda o nome', () => {
+    expect(nomeTipologia('L9')).toBe('L9 — Eleito possivelmente sócio de empresa contratada pelo próprio ente');
+    expect(nomeTipologia('L13')).toBe('L13 — Despesa de campanha com fornecedor de perfil incompatível');
+    expect(nomeTipologia('L13', 'Nome do servidor')).toBe('L13 — Nome do servidor');
   });
 });

@@ -10,6 +10,7 @@ import type {
   ParametrosPncp,
   ParametrosPortalTransparencia,
   ParametrosTseArquivo,
+  ParametrosTseBens,
   RecoletaResultado,
   RecursoPortalTransparencia,
 } from '../../api';
@@ -31,7 +32,8 @@ const FONTES: { id: FonteColeta; rotulo: string }[] = [
   { id: 'pncp', rotulo: 'PNCP — API de consulta de contratos' },
   { id: 'pncp_termos', rotulo: 'PNCP — termos de contrato (aditivos e apostilamentos)' },
   { id: 'portal_transparencia', rotulo: 'Portal da Transparência — sanções (CEIS, CNEP, CEPIM, CEAF), convênios e servidores' },
-  { id: 'tse_arquivo', rotulo: 'TSE — candidaturas e receitas de campanha (arquivos)' },
+  { id: 'tse_arquivo', rotulo: 'TSE — candidaturas, receitas e despesas de campanha (arquivos)' },
+  { id: 'tse_bens', rotulo: 'TSE — bens declarados pelos candidatos (arquivos)' },
   { id: 'edital_arquivo', rotulo: 'Editais em texto ou PDF (arquivos .txt e .pdf)' },
 ];
 
@@ -121,6 +123,7 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
   // Um diretório por fonte de arquivo: cada uma tem a sua raiz de ingestão no servidor.
   const [diretorio, setDiretorio] = useState('');
   const [diretorioTse, setDiretorioTse] = useState('');
+  const [diretorioBens, setDiretorioBens] = useState('');
   const [diretorioEditais, setDiretorioEditais] = useState('');
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
@@ -184,6 +187,14 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
         if (soCandidatosDoCaso) parametros.do_caso = true;
         return { fonte, parametros };
       }
+      case 'tse_bens': {
+        // H50: os mesmos filtros do TSE, sem município (o arquivo de bens não traz a unidade eleitoral).
+        const parametros: ParametrosTseBens = { diretorio: diretorioBens.trim() };
+        if (uf.trim()) parametros.uf = uf.trim().toUpperCase();
+        if (anoTse.trim()) parametros.ano = anoTse.trim();
+        if (soCandidatosDoCaso) parametros.do_caso = true;
+        return { fonte, parametros };
+      }
       case 'edital_arquivo': {
         const parametros: ParametrosEditalArquivo = { diretorio: diretorioEditais.trim() };
         if (numeroControleCompra.trim()) parametros.numero_controle_pncp_compra = numeroControleCompra.trim();
@@ -226,6 +237,8 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
       case 'tse_arquivo':
         // `ano`: vazio ou quatro dígitos, a mesma regra do back-end (`^(\d{4})?$`).
         return diretorioTse.trim().length > 0 && /^([A-Za-z]{2})?$/.test(uf.trim()) && /^(\d{4})?$/.test(anoTse.trim());
+      case 'tse_bens':
+        return diretorioBens.trim().length > 0 && /^([A-Za-z]{2})?$/.test(uf.trim()) && /^(\d{4})?$/.test(anoTse.trim());
       case 'edital_arquivo':
         return diretorioEditais.trim().length > 0;
     }
@@ -377,7 +390,7 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
 
         {fonte === 'tse_arquivo' && (
           <div className="grade-2">
-            <Campo rotulo="Diretório com os arquivos do TSE" dica="Pasta relativa à raiz de ingestão do servidor (TSE_DIR_BASE), com consulta_cand_*.csv e receitas_candidatos_*.csv (ou ZIP com eles). O CPF do candidato nunca é lido.">
+            <Campo rotulo="Diretório com os arquivos do TSE" dica="Pasta relativa à raiz de ingestão do servidor (TSE_DIR_BASE), com consulta_cand_*.csv, receitas_candidatos_*.csv e despesas_contratadas_candidatos_*.csv (ou ZIP com eles). Do CPF do candidato só ficam os seis dígitos centrais; o título eleitoral serve só para ligar as candidaturas da mesma pessoa e nunca é guardado em claro nem exibido.">
               <input type="text" value={diretorioTse} onChange={(e) => setDiretorioTse(e.target.value)} placeholder="tse" maxLength={500} required />
             </Campo>
             <Campo rotulo="UF (opcional)">
@@ -406,6 +419,39 @@ export function AbaColeta({ casoId, aoConcluir }: { casoId: Id; aoConcluir?: () 
             <p className="campo-dica" style={{ gridColumn: '1 / -1' }}>
               Arquivo grande (o CSV de receitas de uma UF grande passa do teto de leitura integral do servidor) é lido em fluxo e exige ao menos um filtro: UF,
               município ou os candidatos do caso. Nesse modo a captura guarda só o recorte filtrado; o SHA-256 do arquivo inteiro fica nos metadados da captura.
+            </p>
+          </div>
+        )}
+
+        {fonte === 'tse_bens' && (
+          <div className="grade-2">
+            <Campo rotulo="Diretório com os arquivos de bens do TSE" dica="Pasta relativa à raiz de ingestão do servidor (TSE_DIR_BASE), com bem_candidato_*.csv (ou ZIP com eles). O arquivo de bens não tem CPF nem título eleitoral.">
+              <input type="text" value={diretorioBens} onChange={(e) => setDiretorioBens(e.target.value)} placeholder="tse/bens" maxLength={500} required />
+            </Campo>
+            <Campo rotulo="UF (opcional)">
+              <input type="text" value={uf} onChange={(e) => setUf(e.target.value)} placeholder="GO" maxLength={2} pattern="[A-Za-z]{2}" />
+            </Campo>
+            <Campo rotulo="Ano da eleição (opcional)" dica="Quatro dígitos. Só vale quando nem a coluna ANO_ELEICAO do arquivo nem o nome do arquivo dizem o ano.">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={anoTse}
+                onChange={(e) => setAnoTse(e.target.value)}
+                placeholder="2024"
+                maxLength={4}
+                pattern="[0-9]{4}"
+                aria-invalid={!/^(\d{4})?$/.test(anoTse.trim())}
+              />
+            </Campo>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <Caixa marcado={soCandidatosDoCaso} aoMudar={setSoCandidatosDoCaso}>
+                Ler só os bens dos candidatos que já estão no caso
+              </Caixa>
+            </div>
+            <p className="campo-dica" style={{ gridColumn: '1 / -1' }}>
+              Os bens ficam ligados à candidatura daquela eleição e aparecem na linha do tempo patrimonial do candidato (aba Entidades). O valor de cada bem é o
+              valor informado pelo candidato ao TSE, não uma avaliação de mercado. Colete antes o arquivo de candidatos; arquivo grande é lido em fluxo e exige
+              ao menos um filtro (UF ou os candidatos do caso).
             </p>
           </div>
         )}

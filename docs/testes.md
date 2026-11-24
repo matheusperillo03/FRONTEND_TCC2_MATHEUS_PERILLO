@@ -19,7 +19,7 @@ node scripts/auditoria.mjs     # npm audit: falha com vulnerabilidade alta ou cr
 - `src/telas/abas/AbaAlertas.test.tsx`: ordem por severidade com a política de cada tipologia; descarte com justificativa muda a situação na tela, gera o evento na auditoria e alimenta o filtro por situação.
 - `src/telas/abas/AbaColeta.test.tsx`: tabela por fonte com sucesso ou falha, tentativas, motivo e versão do conector; atualização ao fim de uma coleta que falha; recoleta com *hash* igual; comparação com *hash* diferente e campos alterados.
 - `src/telas/Casos.test.tsx`: o caso só é criado com finalidade e prazo de retenção; a lista mostra os dois e marca o caso vencido.
-- `src/telas/abas/AbaEntidades.test.tsx`: homônimo aparece só como sugestão "não fundida"; a entidade mantém o próprio identificador.
+- `src/telas/abas/AbaEntidades.test.tsx`: homônimo aparece só como sugestão "não fundida"; a entidade mantém o próprio identificador. Decisão da sugestão (H46), outras candidaturas (H50) e linha do tempo patrimonial (H51).
 - `src/telas/abas/AbaAuditoria.test.tsx`: estados da verificação da cadeia (em andamento, íntegra, violada com `primeira_quebra`, erro).
 - `src/componentes/JustificativaBarra.test.tsx`: aviso sem justificativa, persistência na sessão e recusa de caractere de controle.
 - `src/sessao/SessaoContext.test.tsx`: `sair()` limpa *token*, usuário e justificativa (estado e `sessionStorage`).

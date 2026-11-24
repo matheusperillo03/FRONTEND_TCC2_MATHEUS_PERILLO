@@ -68,6 +68,11 @@ export function contar(n: number, singular: string, plural = `${singular}s`): st
   return `${n} ${n === 1 ? singular : plural}`;
 }
 
+/** Valor em reais no padrão pt-BR ("R$ 1.234,50"); "—" quando não é número. */
+export function formatarReais(v: number | null | undefined): string {
+  return typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—';
+}
+
 export function formatarValor(v: unknown): string {
   if (v === null || v === undefined) return '—';
   if (typeof v === 'number') return v.toLocaleString('pt-BR');

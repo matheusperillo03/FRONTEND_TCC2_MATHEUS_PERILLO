@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Grafo } from '../api/tipos';
-import { ESTILO_NO, paraElementosCytoscape } from './mapear';
+import { ESTILO_ARESTA, ESTILO_NO, paraElementosCytoscape, rotuloTipoAresta } from './mapear';
 
 const grafo: Grafo = {
   nos: [
@@ -102,5 +102,21 @@ describe('paraElementosCytoscape — tipos do horizonte 2', () => {
     expect(arestas.map((a) => a.rotulo)).toEqual(['convenente de', 'concedente de']);
     expect(arestas.every((a) => a.cor !== '#666666')).toBe(true);
     expect(arestas[0].estilo).not.toBe(arestas[1].estilo);
+  });
+});
+
+describe('aresta de despesa de campanha', () => {
+  it('H52: a despesa de campanha tem rótulo legível e estilo próprio, diferente do da doação', () => {
+    expect(rotuloTipoAresta('despesa_de_campanha')).toBe('despesa de campanha com');
+    expect(ESTILO_ARESTA.despesa_de_campanha).toBeDefined();
+    expect(ESTILO_ARESTA.despesa_de_campanha).not.toEqual(ESTILO_ARESTA.doou_para);
+    const [aresta] = paraElementosCytoscape({
+      nos: [
+        { id: 'cand-3', tipo: 'candidato', rotulo: 'CANDIDATA SINTÉTICA' },
+        { id: 'emp-3', tipo: 'empresa', rotulo: 'GAMA CONSULTORIA LTDA' },
+      ],
+      arestas: [{ origem: 'cand-3', destino: 'emp-3', tipo: 'despesa_de_campanha', atributos: { valor: 48000 }, captura_id: 'cap-18' }],
+    }).filter((e) => e.group === 'edges');
+    expect(aresta.data).toMatchObject({ source: 'n:cand-3', target: 'n:emp-3', rotulo: 'despesa de campanha com', capturaId: 'cap-18' });
   });
 });

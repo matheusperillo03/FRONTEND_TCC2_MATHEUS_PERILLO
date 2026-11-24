@@ -127,8 +127,9 @@ describe('AbaAlertas — execução com tipologias e limiares do horizonte 2', (
   it('sem alterar nada, executa todas as tipologias com a configuração em vigor (sem corpo)', async () => {
     const { usuario, executarAlertas } = await renderizar();
     const formulario = screen.getByRole('form', { name: 'Execução das tipologias' });
-    // T1 a T10, as nove L que geram alerta e a combinação (H49: L2, L14 e L15 não têm caixa).
-    expect(within(formulario).getAllByRole('checkbox')).toHaveLength(20);
+    // T1 a T10, as onze L que geram alerta (com L9 e L13, da ligação de pessoas) e a combinação
+    // (H49: L2, L14 e L15 não têm caixa).
+    expect(within(formulario).getAllByRole('checkbox')).toHaveLength(22);
     for (const caixa of within(formulario).getAllByRole('checkbox')) expect(caixa).toBeChecked();
     await usuario.click(screen.getByRole('button', { name: 'Executar tipologias' }));
     expect(executarAlertas).toHaveBeenCalledWith('caso-1');
@@ -136,7 +137,7 @@ describe('AbaAlertas — execução com tipologias e limiares do horizonte 2', (
 
   it('envia só as tipologias escolhidas e os três limiares novos', async () => {
     const { usuario, executarAlertas } = await renderizar();
-    const desmarcar = ['T1', 'T2', 'T3', 'T4', 'T6', 'T7', 'T9', 'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L16', 'COMB'];
+    const desmarcar = ['T1', 'T2', 'T3', 'T4', 'T6', 'T7', 'T9', 'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L16', 'COMB'];
     for (const t of desmarcar) await usuario.click(screen.getByRole('checkbox', { name: t }));
     await usuario.type(screen.getByLabelText('T5 — mínimo de contratações somadas'), '3');
     await usuario.type(screen.getByLabelText('T8 — limite de acréscimo (%)'), '20');
@@ -242,12 +243,12 @@ describe('RF04 e RF14: tipologias de lavagem, sinais fracos e combinação na ab
     expect(within(filtro).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'todas',
       'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10',
-      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L16',
+      'L1', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L13', 'L16',
       'COMB',
     ]);
     expect(within(filtro).getAllByRole('group').map((g) => g.getAttribute('label'))).toEqual(['Contratações', 'Lavagem e ocultação', 'Combinação']);
     const formulario = screen.getByRole('form', { name: 'Execução das tipologias' });
-    expect(within(within(formulario).getByRole('group', { name: 'Lavagem e ocultação' })).getAllByRole('checkbox')).toHaveLength(9);
+    expect(within(within(formulario).getByRole('group', { name: 'Lavagem e ocultação' })).getAllByRole('checkbox')).toHaveLength(11);
     expect(within(within(formulario).getByRole('group', { name: 'Combinação' })).getByRole('checkbox', { name: 'COMB' })).toBeChecked();
 
     await usuario.selectOptions(filtro, 'L6');
